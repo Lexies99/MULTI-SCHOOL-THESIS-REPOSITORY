@@ -138,16 +138,39 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void refreshTenant();
   }, [refreshTenant]);
 
-  // Apply dynamic institution CSS variables whenever tenant or light/dark mode changes
+  // Apply dynamic institution CSS variables, page title, and browser tab favicon
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.setAttribute("data-theme", theme);
     document.documentElement.classList.toggle("dark", theme === "dark");
     applyInstitutionBrandingCss(tenant, theme);
+
+    const setFavicon = (href: string, type = "image/svg+xml") => {
+      let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+      link.type = type;
+      link.href = href;
+    };
+
     if (tenant && !isPlatformRoute) {
       document.title = `${tenant.short_name || tenant.name} Thesis Repository`;
-    } else if (location.pathname === "/") {
-      document.title = "Multi-School Thesis Repository Cloud";
+      if (tenant.logo_url) {
+        setFavicon(tenant.logo_url, "image/png");
+      } else {
+        const bg = encodeURIComponent(tenant.primary_color || "#5A6552");
+        const fg = encodeURIComponent(tenant.secondary_color || "#DCE7D0");
+        const svgData = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'><rect width='64' height='64' rx='16' fill='${bg}'/><path d='M32 13L11 23L32 33L53 23L32 13Z' fill='%23FFFFFF'/><path d='M20 28.5V36.5C20 39.5 25.4 42 32 42C38.6 42 44 39.5 44 36.5V28.5L32 34.5L20 28.5Z' fill='${fg}'/><path d='M49 25V36' stroke='${fg}' stroke-width='2.6' stroke-linecap='round'/><circle cx='49' cy='37.5' r='2.5' fill='%23FFFFFF'/><path d='M16 45.5C21 43.5 27 44 32 47.5C37 44 43 43.5 48 45.5V51.5C43 49.5 37 50 32 53C27 50 21 49.5 16 51.5V45.5Z' fill='%23FFFFFF'/></svg>`;
+        setFavicon(svgData, "image/svg+xml");
+      }
+    } else {
+      if (location.pathname === "/") {
+        document.title = "Multi-School Thesis Repository Cloud";
+      }
+      setFavicon("/favicon.svg?v=2", "image/svg+xml");
     }
   }, [tenant, theme, isPlatformRoute, location.pathname]);
 
