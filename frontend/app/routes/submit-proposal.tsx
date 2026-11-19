@@ -1,50 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { apiUploadPaper, apiCheckTopicDuplication } from '../lib/api';
+import { apiUploadPaper, apiCheckTopicDuplication, apiListDepartments, type ApiDepartment } from '../lib/api';
 import { createTopicPdfFile } from '../lib/pdfGenerator';
 import { ArrowLeft, AlertCircle, Sparkles, CheckCircle2, ShieldAlert, Cpu } from 'lucide-react';
-
-const DISCIPLINES_BY_SCHOOL: Record<string, string[]> = {
-  'Business School': [
-    'Business Administration',
-    'Accounting and Finance',
-  ],
-  'School of Public Service and Governance': [
-    'Public Service and Governance',
-  ],
-  'Faculty of Law': [
-    'Law',
-  ],
-  'School of Technology and Social Sciences (SOTSS)': [
-    'Computer Science and Information Systems',
-    'Information Systems and Innovation',
-    'Economics and Hospitality Studies',
-    'Liberal Arts and Communication Studies',
-  ],
-};
-
-const ALL_DISCIPLINES = [
-  'Business Administration',
-  'Accounting and Finance',
-  'Public Service and Governance',
-  'Law',
-  'Computer Science and Information Systems',
-  'Information Systems and Innovation',
-  'Economics and Hospitality Studies',
-  'Liberal Arts and Communication Studies',
-];
 
 const PROPOSAL_DRAFT_KEY = 'murrs_proposal_draft_v1';
 
 export function meta() {
   return [
-    { title: "Submit Project Proposal - GIMPA Thesis Repository" },
+    { title: "Submit Project Proposal - Thesis Repository" },
     { name: "description", content: "Submit your academic project proposal for review and supervisor assignment" },
   ];
 }
@@ -52,6 +23,12 @@ export function meta() {
 export default function SubmitProposal() {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
+  const { tenant, tenantPath } = useTenant();
+  const [tenantDepartments, setTenantDepartments] = useState<ApiDepartment[]>([]);
+
+  useEffect(() => {
+    void apiListDepartments().then(setTenantDepartments).catch(() => setTenantDepartments([]));
+  }, [tenant?.slug]);
   
   const [selectedFile] = useState<File | null>(null);
   const [workMode, setWorkMode] = useState<'individual' | 'group'>('individual');
@@ -94,16 +71,20 @@ export default function SubmitProposal() {
     return () => clearTimeout(timer);
   }, [formData.title]);
 
-  const disciplineOptions = useMemo(
-    () => DISCIPLINES_BY_SCHOOL[user?.university || ''] || ALL_DISCIPLINES,
-    [user?.university],
-  );
+  const disciplineOptions = useMemo(() => {
+    const names = Array.from(
+      new Set(
+        tenantDepartments.flatMap((d) => [d.name, ...(d.programs || [])]).filter(Boolean),
+      ),
+    );
+    return names.length > 0 ? names : ['General Research'];
+  }, [tenantDepartments]);
 
   useEffect(() => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate(tenantPath('/login'));
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, tenantPath]);
 
   useEffect(() => {
     try {

@@ -4,8 +4,9 @@ import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { useAuth } from '../../context/AuthContext'
+import { useTenant } from '../../context/TenantContext'
 import { Bookmark, BookOpen, Download, Eye, Grid3x3, List, LogIn, Search, Star, Building2 } from 'lucide-react'
-import { apiDownloadPaperFile, apiListPapers, apiTrackPaperView } from '../../lib/api'
+import { apiDownloadPaperFile, apiListDepartments, apiListPapers, apiTrackPaperView, type ApiDepartment } from '../../lib/api'
 import { convertTextOrTopicToPdf } from '../../lib/pdfGenerator'
 import type { ApiPaper } from '../../lib/api'
 
@@ -33,24 +34,50 @@ const sortByCategory: Record<string, string> = {
 export function PublicCatalog() {
   const navigate = useNavigate()
   const { user, isAuthenticated } = useAuth()
+  const { tenant, tenantPath } = useTenant()
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
   const [bookmarked, setBookmarked] = useState<Set<number>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
   const [papers, setPapers] = useState<ApiPaper[]>([])
+  const [departments, setDepartments] = useState<ApiDepartment[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedPaper, setSelectedPaper] = useState<ApiPaper | null>(null)
   const [abstractOpen, setAbstractOpen] = useState(false)
   const [activeFaculty, setActiveFaculty] = useState('all')
 
-  const FACULTIES = [
-    { id: 'all', label: 'All Faculties' },
-    { id: 'gbs', label: 'Business School (GBS)' },
-    { id: 'spsg', label: 'Public Service & Governance' },
-    { id: 'law', label: 'Faculty of Law' },
-    { id: 'sotss', label: 'Technology & Social Sciences' },
-  ]
+  const brandShort = tenant?.short_name || tenant?.name || 'Institution'
+
+  useEffect(() => {
+    let cancelled = false
+    setActiveFaculty('all')
+    void apiListDepartments()
+      .then((list) => {
+        if (!cancelled) setDepartments(list)
+      })
+      .catch(() => {
+        if (!cancelled) setDepartments([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tenant?.slug])
+
+  const FACULTIES = useMemo(() => {
+    const uniqueFaculties = Array.from(
+      new Set(
+        departments
+          .map((d) => (d.faculty_name || d.institution_name || '').trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b))
+
+    return [
+      { id: 'all', label: 'All Faculties' },
+      ...uniqueFaculties.map((fac) => ({ id: fac, label: fac })),
+    ]
+  }, [departments])
 
   useEffect(() => {
     let cancelled = false
@@ -136,18 +163,22 @@ export function PublicCatalog() {
 
   const filteredPapers = useMemo(() => {
     if (activeFaculty === 'all') return papers
-    const facultyMap: Record<string, string[]> = {
-      gbs: ['business', 'management', 'finance', 'accounting', 'marketing', 'gbs'],
-      spsg: ['public', 'governance', 'administration', 'policy', 'spsg'],
-      law: ['law', 'legal', 'jurisprudence'],
-      sotss: ['technology', 'social', 'science', 'computing', 'it', 'sotss'],
-    }
-    const keywords = facultyMap[activeFaculty] || []
+    const matchingDepts = departments.filter(
+      (d) => (d.faculty_name || d.institution_name || '').trim().toLowerCase() === activeFaculty.toLowerCase(),
+    )
+    const deptIds = new Set(matchingDepts.map((d) => d.id))
+    const matchTerms = new Set<string>([
+      activeFaculty.toLowerCase(),
+      ...matchingDepts.map((d) => d.name.toLowerCase()),
+      ...matchingDepts.flatMap((d) => (d.programs || []).map((p) => p.toLowerCase())),
+    ])
     return papers.filter((p) => {
+      if (p.department_id && deptIds.has(p.department_id)) return true
       const disc = (p.discipline || '').toLowerCase()
-      return keywords.some((kw) => disc.includes(kw))
+      const uni = (p.university || '').toLowerCase()
+      return Array.from(matchTerms).some((term) => term && (disc.includes(term) || uni.includes(term)))
     })
-  }, [papers, activeFaculty])
+  }, [papers, activeFaculty, departments])
 
   return (
     <div className="space-y-8">
@@ -211,16 +242,16 @@ export function PublicCatalog() {
           {isAuthenticated && user?.role !== 'guest' ? (
             <button
               type="button"
-              onClick={() => navigate('/submit-proposal')}
-              className="h-9 px-4 rounded-lg bg-[#dce7d0] hover:bg-[#ceddc0] text-[#1a1d1a] text-[12px] font-bold transition-colors cursor-pointer"
+              onClick={() => navigate(tenantPath('/submit-proposal'))}
+              className="h-9 px-4 rounded-lg text-[12px] font-bold transition-colors cursor-pointer btn-fp-sage"
             >
               + Submit thesis
             </button>
           ) : (
             <button
               type="button"
-              onClick={() => navigate('/login')}
-              className="h-9 px-4 rounded-lg bg-[#dce7d0] hover:bg-[#ceddc0] text-[#1a1d1a] text-[12px] font-bold transition-colors cursor-pointer"
+              onClick={() => navigate(tenantPath('/login'))}
+              className="h-9 px-4 rounded-lg text-[12px] font-bold transition-colors cursor-pointer btn-fp-sage"
             >
               + Sign in to submit
             </button>
@@ -274,15 +305,15 @@ export function PublicCatalog() {
           </div>
           <div className="space-y-1 max-w-md mx-auto">
             <h3 className="text-[18px] font-bold text-[#1a1d1a]">
-              Welcome to the GIMPA Thesis Repository
+              Welcome to the {brandShort} Thesis Repository
             </h3>
             <p className="text-[13px] text-[#6e766b] leading-relaxed">
-              Approved doctoral dissertations, postgraduate theses, and scholarly research works across GIMPA faculties appear here.
+              Approved doctoral dissertations, postgraduate theses, and scholarly research works across {brandShort} schools and faculties appear here.
             </p>
           </div>
           <div className="flex items-center justify-center gap-3 pt-2">
             {!isAuthenticated && (
-              <Button onClick={() => navigate('/login')}>
+              <Button onClick={() => navigate(tenantPath('/login'))}>
                 <LogIn className="size-4 mr-1.5" /> Log in to Submit
               </Button>
             )}

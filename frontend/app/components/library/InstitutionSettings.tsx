@@ -4,21 +4,25 @@ import {
   CheckCircle2,
   Download,
   Palette,
+  Pencil,
   Plus,
   RotateCcw,
   Save,
   Shield,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import {
   apiCreateDepartment,
+  apiDeleteDepartment,
   apiDeleteInstitutionLogo,
   apiExportInstitutionData,
   apiGetCurrentInstitution,
   apiGetInstitutionAuditLogs,
   apiListDepartments,
   apiUpdateCurrentInstitutionBranding,
+  apiUpdateDepartment,
   apiUploadInstitutionLogo,
   getValidAccessToken,
   type ApiDepartment,
@@ -59,9 +63,14 @@ export function InstitutionSettings() {
   const [neutralColor, setNeutralColor] = useState(DEFAULT_INSTITUTION_BRANDING.neutral_color);
   const [defaultTheme, setDefaultTheme] = useState<"light" | "dark">("light");
 
-  // New department creator
+  // New department creator & inline editor
   const [newDeptName, setNewDeptName] = useState("");
   const [newFacultyName, setNewFacultyName] = useState("");
+  const [newProgramsText, setNewProgramsText] = useState("");
+  const [editingDeptId, setEditingDeptId] = useState<number | null>(null);
+  const [editFacultyName, setEditFacultyName] = useState("");
+  const [editDeptName, setEditDeptName] = useState("");
+  const [editProgramsText, setEditProgramsText] = useState("");
 
   const syncForm = (inst: ApiInstitutionAdmin) => {
     setInstitution(inst);
@@ -192,21 +201,87 @@ export function InstitutionSettings() {
     try {
       const token = await getValidAccessToken();
       if (!token) return;
+      const programs = newProgramsText
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
       await apiCreateDepartment(
         {
           name: newDeptName.trim(),
           faculty_name: newFacultyName.trim() || undefined,
+          programs,
         },
         token,
       );
       setNewDeptName("");
       setNewFacultyName("");
-      setMessage("Department added to your institution!");
+      setNewProgramsText("");
+      setMessage("School / Department added to your institution!");
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create department");
     }
   };
+
+  const startEditDept = (d: ApiDepartment) => {
+    setEditingDeptId(d.id);
+    setEditFacultyName(d.faculty_name || d.institution_name || "");
+    setEditDeptName(d.name || "");
+    setEditProgramsText((d.programs || []).join(", "));
+  };
+
+  const handleSaveDeptEdit = async (deptId: number) => {
+    setError("");
+    setMessage("");
+    try {
+      const token = await getValidAccessToken();
+      if (!token) return;
+      const programs = editProgramsText
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
+      await apiUpdateDepartment(
+        deptId,
+        {
+          name: editDeptName.trim(),
+          faculty_name: editFacultyName.trim(),
+          programs,
+        },
+        token,
+      );
+      setEditingDeptId(null);
+      setMessage("Department & programs updated.");
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update department");
+    }
+  };
+
+  const handleDeleteDept = async (d: ApiDepartment) => {
+    if (!window.confirm(`Delete department "${d.name}" from ${institution?.short_name || "your institution"}?`)) return;
+    setError("");
+    setMessage("");
+    try {
+      const token = await getValidAccessToken();
+      if (!token) return;
+      await apiDeleteDepartment(d.id, token);
+      setMessage(`Deleted department "${d.name}".`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete department");
+    }
+  };
+
+  const departmentsByFaculty = useMemo(() => {
+    const groups = new Map<string, ApiDepartment[]>();
+    for (const d of departments) {
+      const fac = (d.faculty_name || d.institution_name || institution?.short_name || "General").trim();
+      const arr = groups.get(fac) || [];
+      arr.push(d);
+      groups.set(fac, arr);
+    }
+    return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [departments, institution?.short_name]);
 
   const handleExport = async () => {
     try {
@@ -399,39 +474,174 @@ export function InstitutionSettings() {
         </div>
       </section>
 
-      {/* Institution Departments Configuration */}
+      {/* Institution Schools, Departments & Programs Configuration */}
       <section className="fp-card">
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-          <Building2 style={{ width: 19, height: 19, color: "var(--fp-olive)" }} />
-          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Departments & Faculties ({departments.length})</h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Building2 style={{ width: 19, height: 19, color: "var(--fp-olive)" }} />
+            <div>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>
+                Schools / Faculties, Departments & Programs ({departments.length})
+              </h3>
+              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                These schools, departments, and programs immediately power your Public Catalog, Search Filters, Account Creation, and Proposal Submission screens.
+              </div>
+            </div>
+          </div>
         </div>
-        <form onSubmit={handleAddDepartment} style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+
+        <form onSubmit={handleAddDepartment} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: 20 }}>
           <input
             value={newFacultyName}
             onChange={(e) => setNewFacultyName(e.target.value)}
-            placeholder="Faculty / School (optional)"
-            style={{ flex: "1 1 200px", padding: "9px 12px", fontSize: 13 }}
+            placeholder="School / College / Faculty (e.g. College of Humanities)"
+            style={{ padding: "9px 12px", fontSize: 13 }}
           />
           <input
             required
             value={newDeptName}
             onChange={(e) => setNewDeptName(e.target.value)}
-            placeholder="New Department Name *"
-            style={{ flex: "1 1 240px", padding: "9px 12px", fontSize: 13 }}
+            placeholder="Department Name * (e.g. Economics)"
+            style={{ padding: "9px 12px", fontSize: 13 }}
           />
-          <button type="submit" className="btn-fp-olive" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 16px", fontSize: 13 }}>
+          <input
+            value={newProgramsText}
+            onChange={(e) => setNewProgramsText(e.target.value)}
+            placeholder="Programs (comma-separated, e.g. BA Economics, MPhil Economics)"
+            style={{ padding: "9px 12px", fontSize: 13 }}
+          />
+          <button type="submit" className="btn-fp-olive" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 16px", fontSize: 13 }}>
             <Plus style={{ width: 14, height: 14 }} />
-            <span>Add Department</span>
+            <span>Add School / Dept</span>
           </button>
         </form>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {departments.map((d) => (
-            <span key={d.id} className="fp-tag-sage" style={{ fontSize: 12.5 }}>
-              {d.name}
-              {d.institution_name && d.institution_name !== d.name ? ` (${d.institution_name})` : ""}
-            </span>
-          ))}
-        </div>
+
+        {departmentsByFaculty.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            No schools or departments configured yet. Add your first school and department above.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {departmentsByFaculty.map(([facultyLabel, facDepts]) => (
+              <div
+                key={facultyLabel}
+                style={{
+                  border: "1px solid var(--border-color)",
+                  borderRadius: 10,
+                  padding: 14,
+                  background: "var(--bg-main)",
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{facultyLabel}</span>
+                  <span style={{ fontSize: 11.5, color: "var(--text-muted)", fontWeight: 500 }}>
+                    {facDepts.length} department{facDepts.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {facDepts.map((d) =>
+                    editingDeptId === d.id ? (
+                      <div key={d.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr auto auto", gap: 8, alignItems: "center" }}>
+                        <input
+                          value={editFacultyName}
+                          onChange={(e) => setEditFacultyName(e.target.value)}
+                          placeholder="School / Faculty"
+                          style={{ padding: "7px 9px", fontSize: 12.5 }}
+                        />
+                        <input
+                          value={editDeptName}
+                          onChange={(e) => setEditDeptName(e.target.value)}
+                          placeholder="Department"
+                          style={{ padding: "7px 9px", fontSize: 12.5 }}
+                        />
+                        <input
+                          value={editProgramsText}
+                          onChange={(e) => setEditProgramsText(e.target.value)}
+                          placeholder="Programs (comma-separated)"
+                          style={{ padding: "7px 9px", fontSize: 12.5 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveDeptEdit(d.id)}
+                          className="btn-fp-olive"
+                          style={{ padding: "6px 10px", fontSize: 12 }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingDeptId(null)}
+                          className="btn-fp-outline"
+                          style={{ padding: "6px 8px" }}
+                        >
+                          <X style={{ width: 13, height: 13 }} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        key={d.id}
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          padding: "8px 12px",
+                          borderRadius: 8,
+                          background: "var(--bg-card)",
+                          border: "1px solid var(--border-color)",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13.5 }}>{d.name}</div>
+                          {d.programs && d.programs.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 4 }}>
+                              {d.programs.map((prog) => (
+                                <span
+                                  key={prog}
+                                  style={{
+                                    fontSize: 11,
+                                    padding: "2px 8px",
+                                    borderRadius: 999,
+                                    background: "var(--fp-sage)",
+                                    color: "var(--fp-sage-text)",
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  {prog}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => startEditDept(d)}
+                            className="btn-fp-outline"
+                            style={{ padding: "5px 9px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}
+                          >
+                            <Pencil style={{ width: 12, height: 12 }} />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteDept(d)}
+                            className="btn-fp-outline"
+                            style={{ padding: "5px 9px", fontSize: 12, color: "#c93b2b", display: "inline-flex", alignItems: "center", gap: 4 }}
+                          >
+                            <Trash2 style={{ width: 12, height: 12 }} />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Institution Audit Log */}

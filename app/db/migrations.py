@@ -303,6 +303,7 @@ def ensure_multi_tenant_schema() -> None:
             ("admin_full_name", "VARCHAR(255)"),
             ("admin_email", "VARCHAR(255)"),
             ("admin_school_id", "VARCHAR(64)"),
+            ("initial_structure_json", "TEXT"),
             ("approval_notes", "TEXT"),
             ("approved_by_id", "INTEGER"),
             ("approved_at", ts_type),
@@ -318,6 +319,8 @@ def ensure_multi_tenant_schema() -> None:
         dept_cols = {c["name"] for c in inspector.get_columns("departments")}
         if "faculty_name" not in dept_cols:
             statements.append("ALTER TABLE departments ADD COLUMN faculty_name VARCHAR(255)")
+        if "programs" not in dept_cols:
+            statements.append("ALTER TABLE departments ADD COLUMN programs TEXT")
 
     if "users" in table_names:
         user_cols = {c["name"] for c in inspector.get_columns("users")}

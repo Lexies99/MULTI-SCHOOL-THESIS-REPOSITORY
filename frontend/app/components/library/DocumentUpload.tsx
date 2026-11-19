@@ -8,44 +8,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Upload, FileText, X } from 'lucide-react';
 import { Progress } from '../ui/progress';
 import { Checkbox } from '../ui/checkbox';
-import { apiImportAccounts, apiListSupervisors, apiUploadPaper, type ApiImportAccountsSummary, type ApiUser } from '../../lib/api';
+import { apiImportAccounts, apiListDepartments, apiListSupervisors, apiUploadPaper, type ApiDepartment, type ApiImportAccountsSummary, type ApiUser } from '../../lib/api';
 import { createTopicPdfFile } from '../../lib/pdfGenerator';
 import { useAuth } from '../../context/AuthContext';
-
-const DISCIPLINES_BY_SCHOOL: Record<string, string[]> = {
-  'Business School': [
-    'Business Administration',
-    'Accounting and Finance',
-  ],
-  'School of Public Service and Governance': [
-    'Public Service and Governance',
-  ],
-  'Faculty of Law': [
-    'Law',
-  ],
-  'School of Technology and Social Sciences (SOTSS)': [
-    'Computer Science and Information Systems',
-    'Information Systems and Innovation',
-    'Economics and Hospitality Studies',
-    'Liberal Arts and Communication Studies',
-  ],
-}
-
-const ALL_DISCIPLINES = [
-  'Business Administration',
-  'Accounting and Finance',
-  'Public Service and Governance',
-  'Law',
-  'Computer Science and Information Systems',
-  'Information Systems and Innovation',
-  'Economics and Hospitality Studies',
-  'Liberal Arts and Communication Studies',
-]
+import { useTenant } from '../../context/TenantContext';
 
 const DRAFT_STORAGE_KEY = 'murrs_upload_draft_v1'
 
 export function DocumentUpload() {
   const { user } = useAuth()
+  const { tenant } = useTenant()
   const isSystemAdmin = user?.role === 'system_admin'
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -71,12 +43,22 @@ export function DocumentUpload() {
   const [bulkSummary, setBulkSummary] = useState<ApiImportAccountsSummary | null>(null);
   const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [supervisors, setSupervisors] = useState<ApiUser[]>([]);
+  const [tenantDepartments, setTenantDepartments] = useState<ApiDepartment[]>([]);
   const [supervisorId, setSupervisorId] = useState('');
   const [copyrightAccepted, setCopyrightAccepted] = useState(false);
-  const disciplineOptions = useMemo(
-    () => DISCIPLINES_BY_SCHOOL[user?.university || ''] || ALL_DISCIPLINES,
-    [user?.university],
-  )
+
+  useEffect(() => {
+    void apiListDepartments().then(setTenantDepartments).catch(() => setTenantDepartments([]))
+  }, [tenant?.slug])
+
+  const disciplineOptions = useMemo(() => {
+    const names = Array.from(
+      new Set(
+        tenantDepartments.flatMap((d) => [d.name, ...(d.programs || [])]).filter(Boolean),
+      ),
+    )
+    return names.length > 0 ? names : ['General Research']
+  }, [tenantDepartments])
 
   const truncateWords = (value: string, maxWords: number) => {
     const words = value.trim().split(/\s+/).filter(Boolean)

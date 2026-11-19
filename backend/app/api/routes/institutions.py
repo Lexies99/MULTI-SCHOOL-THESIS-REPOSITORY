@@ -179,6 +179,7 @@ async def onboard_institution_multipart(
     allowed_email_domains: str | None = Form(None),
     academic_year: str | None = Form("2025/2026"),
     admin_school_id: str | None = Form(None),
+    initial_structure_json: str | None = Form(None),
     primary_color: str = Form(DEFAULT_BRANDING["primary_color"]),
     secondary_color: str = Form(DEFAULT_BRANDING["secondary_color"]),
     accent_color: str = Form(DEFAULT_BRANDING["accent_color"]),
@@ -189,6 +190,7 @@ async def onboard_institution_multipart(
 ) -> InstitutionAdminRead:
     """Public institution onboarding endpoint supporting multipart form + optional logo image upload."""
     try:
+        parsed_structure = json.loads(initial_structure_json) if initial_structure_json else []
         payload = InstitutionOnboardRequest(
             name=name,
             short_name=short_name,
@@ -204,6 +206,7 @@ async def onboard_institution_multipart(
             admin_full_name=admin_full_name,
             admin_email=admin_email,
             admin_school_id=admin_school_id or None,
+            initial_structure=parsed_structure if isinstance(parsed_structure, list) else [],
             primary_color=primary_color,
             secondary_color=secondary_color,
             accent_color=accent_color,

@@ -11,6 +11,7 @@ from app.schemas.department import (
     AssignDeanRequest,
     AddSupervisorRequest,
     DepartmentCreate,
+    DepartmentUpdate,
     RemoveSupervisorRequest,
     DepartmentRead,
     DepartmentSupervisorRead,
@@ -20,7 +21,10 @@ from app.services.department_service import (
     assign_dean,
     add_department_supervisor,
     create_department_for_tenant,
+    delete_department_for_tenant,
+    parse_programs,
     remove_department_supervisor,
+    update_department_for_tenant,
     get_department_supervisors,
     get_department,
     list_departments,
@@ -44,6 +48,7 @@ def _to_department_read(department) -> DepartmentRead:
         institution_name=inst_name,
         faculty_name=getattr(department, "faculty_name", None) or inst_name,
         name=department.name,
+        programs=parse_programs(getattr(department, "programs", None)),
         hod_user_id=department.hod_user_id,
         dean_user_id=department.dean_user_id,
     )
@@ -66,21 +71,71 @@ def create_department_endpoint(
     current_user: User = Depends(require_any_role("system_admin", "deputy_rector", "dean")),
     db: Session = Depends(get_db),
 ) -> DepartmentRead:
-    """Create a new department/faculty within the authenticated administrator's institution."""
-    if not current_user.institution_id:
+    """Create a new school/faculty department & programs within the authenticated administrator's institution."""
+    from app.core.tenant import get_effective_tenant_id
+
+    target_inst_id = current_user.institution_id or get_effective_tenant_id(db)
+    if not target_inst_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active institution required")
     try:
         dept = create_department_for_tenant(
             db,
-            institution_id=current_user.institution_id,
+            institution_id=target_inst_id,
             name=payload.name,
             faculty_name=payload.faculty_name,
+            programs=payload.programs,
             hod_user_id=payload.hod_user_id,
             dean_user_id=payload.dean_user_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _to_department_read(dept)
+
+
+@router.patch("/{department_id}", response_model=DepartmentRead)
+def update_department_endpoint(
+    department_id: int,
+    payload: DepartmentUpdate,
+    current_user: User = Depends(require_any_role("system_admin", "deputy_rector", "dean")),
+    db: Session = Depends(get_db),
+) -> DepartmentRead:
+    """Update a department's school/faculty name, department name, or programs within the current institution."""
+    from app.core.tenant import get_effective_tenant_id
+
+    target_inst_id = current_user.institution_id or get_effective_tenant_id(db)
+    if not target_inst_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active institution required")
+    try:
+        dept = update_department_for_tenant(
+            db,
+            department_id=department_id,
+            institution_id=target_inst_id,
+            name=payload.name,
+            faculty_name=payload.faculty_name,
+            programs=payload.programs,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _to_department_read(dept)
+
+
+@router.delete("/{department_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_department_endpoint(
+    department_id: int,
+    current_user: User = Depends(require_any_role("system_admin", "deputy_rector", "dean")),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Delete a department within the current institution."""
+    from app.core.tenant import get_effective_tenant_id
+
+    target_inst_id = current_user.institution_id or get_effective_tenant_id(db)
+    if not target_inst_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active institution required")
+    try:
+        delete_department_for_tenant(db, department_id=department_id, institution_id=target_inst_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/sync-defaults", response_model=list[DepartmentRead])

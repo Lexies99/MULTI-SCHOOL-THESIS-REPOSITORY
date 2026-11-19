@@ -7,13 +7,21 @@ from typing import Optional
 class DepartmentBase(BaseModel):
     name: str
     faculty_name: Optional[str] = None
+    programs: list[str] = Field(default_factory=list)
 
 
 class DepartmentCreate(DepartmentBase):
     name: str = Field(..., min_length=2, max_length=255)
     faculty_name: Optional[str] = Field(default=None, max_length=255)
+    programs: list[str] = Field(default_factory=list)
     hod_user_id: Optional[int] = None
     dean_user_id: Optional[int] = None
+
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    faculty_name: Optional[str] = Field(default=None, max_length=255)
+    programs: Optional[list[str]] = None
 
 
 class DepartmentRead(DepartmentBase):
@@ -21,6 +29,7 @@ class DepartmentRead(DepartmentBase):
     institution_id: int
     institution_name: Optional[str] = None
     faculty_name: Optional[str] = None
+    programs: list[str] = Field(default_factory=list)
     hod_user_id: Optional[int] = None
     dean_user_id: Optional[int] = None
 

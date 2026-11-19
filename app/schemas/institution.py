@@ -53,12 +53,23 @@ class InstitutionPublicRead(BaseModel):
         from_attributes = True
 
 
+class InitialDepartmentInput(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    programs: list[str] = Field(default_factory=list)
+
+
+class InitialFacultyInput(BaseModel):
+    faculty_name: str = Field(..., min_length=1, max_length=255)
+    departments: list[InitialDepartmentInput] = Field(default_factory=list)
+
+
 class InstitutionAdminRead(InstitutionPublicRead):
     contact_name: str | None = None
     contact_phone: str | None = None
     admin_full_name: str | None = None
     admin_email: str | None = None
     admin_school_id: str | None = None
+    initial_structure: list[InitialFacultyInput] = Field(default_factory=list)
     approval_notes: str | None = None
     approved_by_id: int | None = None
     approved_at: datetime | None = None
@@ -84,6 +95,7 @@ class InstitutionOnboardRequest(BaseModel):
     admin_full_name: str = Field(..., min_length=2, max_length=255)
     admin_email: EmailStr
     admin_school_id: str | None = Field(default=None, max_length=64)
+    initial_structure: list[InitialFacultyInput] = Field(default_factory=list)
     primary_color: str = Field(default=DEFAULT_BRANDING["primary_color"])
     secondary_color: str = Field(default=DEFAULT_BRANDING["secondary_color"])
     accent_color: str = Field(default=DEFAULT_BRANDING["accent_color"])

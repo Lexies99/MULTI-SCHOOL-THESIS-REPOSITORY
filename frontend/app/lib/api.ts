@@ -276,7 +276,9 @@ export interface ApiDepartment {
   id: number
   institution_id: number
   institution_name: string | null
+  faculty_name?: string | null
   name: string
+  programs?: string[]
   hod_user_id: number | null
   dean_user_id: number | null
 }
@@ -2845,12 +2847,23 @@ export interface ApiInstitutionPublic {
   contrast?: ApiContrastReport | null
 }
 
+export interface ApiInitialDepartmentInput {
+  name: string
+  programs?: string[]
+}
+
+export interface ApiInitialFacultyInput {
+  faculty_name: string
+  departments: ApiInitialDepartmentInput[]
+}
+
 export interface ApiInstitutionAdmin extends ApiInstitutionPublic {
   contact_name?: string | null
   contact_phone?: string | null
   admin_full_name?: string | null
   admin_email?: string | null
   admin_school_id?: string | null
+  initial_structure?: ApiInitialFacultyInput[]
   approval_notes?: string | null
   approved_by_id?: number | null
   approved_at?: string | null
@@ -2883,6 +2896,7 @@ export interface ApiInstitutionOnboardPayload {
   admin_full_name: string
   admin_email: string
   admin_school_id?: string
+  initial_structure?: ApiInitialFacultyInput[]
   primary_color: string
   secondary_color: string
   accent_color: string
@@ -2967,6 +2981,12 @@ export async function apiOnboardInstitution(
   if (logoFile) {
     const form = new FormData()
     Object.entries(payload).forEach(([k, v]) => {
+      if (k === "initial_structure") {
+        if (Array.isArray(v) && v.length > 0) {
+          form.append("initial_structure_json", JSON.stringify(v))
+        }
+        return
+      }
       if (v !== undefined && v !== null && String(v).trim() !== "") {
         form.append(k, String(v))
       }
@@ -3032,7 +3052,7 @@ export async function apiDeleteInstitutionLogo(accessToken: string): Promise<Api
 }
 
 export async function apiCreateDepartment(
-  payload: { name: string; faculty_name?: string },
+  payload: { name: string; faculty_name?: string; programs?: string[] },
   accessToken: string,
 ): Promise<ApiDepartment> {
   const response = await tenantAwareFetch(`${apiBase}/departments`, {
@@ -3044,6 +3064,38 @@ export async function apiCreateDepartment(
     body: JSON.stringify(payload),
   })
   return handleResponse<ApiDepartment>(response)
+}
+
+export async function apiUpdateDepartment(
+  departmentId: number,
+  payload: { name?: string; faculty_name?: string; programs?: string[] },
+  accessToken: string,
+): Promise<ApiDepartment> {
+  const response = await tenantAwareFetch(`${apiBase}/departments/${departmentId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiDepartment>(response)
+}
+
+export async function apiDeleteDepartment(
+  departmentId: number,
+  accessToken: string,
+): Promise<void> {
+  const response = await tenantAwareFetch(`${apiBase}/departments/${departmentId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || "Failed to delete department")
+  }
 }
 
 export async function apiGetInstitutionAuditLogs(

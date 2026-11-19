@@ -6,8 +6,9 @@ import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog'
 import { useAuth } from '../../context/AuthContext'
+import { useTenant } from '../../context/TenantContext'
 import { Search, Filter, Download, Eye, Bookmark, Grid3x3, List, X } from 'lucide-react'
-import { apiDownloadPaperFile, apiListPapers } from '../../lib/api'
+import { apiDownloadPaperFile, apiListDepartments, apiListPapers, type ApiDepartment } from '../../lib/api'
 import { convertTextOrTopicToPdf } from '../../lib/pdfGenerator'
 import type { ApiPaper } from '../../lib/api'
 
@@ -16,6 +17,7 @@ const ACCESS_TOKEN_KEY = 'murrs_access_token'
 export function SearchDiscovery() {
   const navigate = useNavigate()
   const { user, isAuthenticated } = useAuth()
+  const { tenant, tenantPath } = useTenant()
   const [searchQuery, setSearchQuery] = useState('')
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({})
   const [sortBy, setSortBy] = useState('relevance')
@@ -26,36 +28,49 @@ export function SearchDiscovery() {
   const [searchName, setSearchName] = useState('')
   const [currentPage, setCurrentPage] = useState(0)
   const [papers, setPapers] = useState<ApiPaper[]>([])
+  const [departments, setDepartments] = useState<ApiDepartment[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const resultsPerPage = 10
 
-  const SCHOOL_DISCIPLINE_MAP: Record<string, string[]> = {
-    'Business School': [
-      'Business Administration',
-      'Accounting and Finance',
-    ],
-    'School of Public Service and Governance': [
-      'Public Service and Governance',
-    ],
-    'Faculty of Law': [
-      'Law',
-    ],
-    'School of Technology and Social Sciences (SOTSS)': [
-      'Computer Science and Information Systems',
-      'Information Systems and Innovation',
-      'Economics and Hospitality Studies',
-      'Liberal Arts and Communication Studies',
-    ],
-  }
-  const disciplines = Array.from(new Set(Object.values(SCHOOL_DISCIPLINE_MAP).flat()))
+  useEffect(() => {
+    let cancelled = false
+    setActiveFilters({})
+    void apiListDepartments()
+      .then((list) => {
+        if (!cancelled) setDepartments(list)
+      })
+      .catch(() => {
+        if (!cancelled) setDepartments([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tenant?.slug])
+
+  const SCHOOL_DISCIPLINE_MAP = useMemo(() => {
+    const map: Record<string, string[]> = {}
+    for (const d of departments) {
+      const schoolLabel = (d.faculty_name || d.institution_name || tenant?.short_name || 'General').trim()
+      if (!map[schoolLabel]) map[schoolLabel] = []
+      if (d.name && !map[schoolLabel].includes(d.name)) {
+        map[schoolLabel].push(d.name)
+      }
+      for (const prog of d.programs || []) {
+        if (prog && !map[schoolLabel].includes(prog)) {
+          map[schoolLabel].push(prog)
+        }
+      }
+    }
+    return map
+  }, [departments, tenant?.short_name])
+
+  const schools = useMemo(() => Object.keys(SCHOOL_DISCIPLINE_MAP).sort((a, b) => a.localeCompare(b)), [SCHOOL_DISCIPLINE_MAP])
+  const disciplines = useMemo(
+    () => Array.from(new Set(Object.values(SCHOOL_DISCIPLINE_MAP).flat())).sort((a, b) => a.localeCompare(b)),
+    [SCHOOL_DISCIPLINE_MAP],
+  )
   const years = ['2026', '2025', '2024', '2023', '2022', '2021', '2020']
-  const schools = [
-    'Business School',
-    'School of Public Service and Governance',
-    'Faculty of Law',
-    'School of Technology and Social Sciences (SOTSS)',
-  ]
   const selectedSchool = activeFilters.university?.[0]
   const visibleDisciplines = selectedSchool ? (SCHOOL_DISCIPLINE_MAP[selectedSchool] || []) : disciplines
 

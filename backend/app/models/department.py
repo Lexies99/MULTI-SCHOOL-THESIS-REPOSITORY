@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 
 from app.models.base import Base
@@ -14,6 +14,7 @@ class Department(Base):
     institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
     faculty_name = Column(String(255), nullable=True, index=True)
     name = Column(String(255), nullable=False, index=True)
+    programs = Column(Text, nullable=True)  # JSON-encoded list of academic program names
     hod_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     dean_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

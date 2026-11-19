@@ -102,6 +102,18 @@ def to_public_read(inst: Institution) -> InstitutionPublicRead:
     )
 
 
+def _parse_initial_structure(raw: str | None) -> list[dict[str, Any]]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict) and item.get("faculty_name")]
+    except Exception:
+        pass
+    return []
+
+
 def to_admin_read(db: Session, inst: Institution) -> InstitutionAdminRead:
     pub = to_public_read(inst)
     with tenant_bypass():
@@ -115,6 +127,7 @@ def to_admin_read(db: Session, inst: Institution) -> InstitutionAdminRead:
         admin_full_name=inst.admin_full_name,
         admin_email=inst.admin_email,
         admin_school_id=inst.admin_school_id,
+        initial_structure=_parse_initial_structure(getattr(inst, "initial_structure_json", None)),
         approval_notes=inst.approval_notes,
         approved_by_id=inst.approved_by_id,
         approved_at=inst.approved_at,
@@ -227,6 +240,22 @@ def submit_institution_onboarding(
     if logo_bytes:
         validated_logo = validate_logo_upload(logo_filename, logo_content_type, logo_bytes)
 
+    initial_structure_payload = [
+        {
+            "faculty_name": fac.faculty_name.strip(),
+            "departments": [
+                {
+                    "name": d.name.strip(),
+                    "programs": [p.strip() for p in d.programs if p and p.strip()],
+                }
+                for d in fac.departments
+                if d.name and d.name.strip()
+            ],
+        }
+        for fac in (payload.initial_structure or [])
+        if fac.faculty_name and fac.faculty_name.strip()
+    ]
+
     initial_status = "approved" if settings.auto_approve_institutions else "pending"
     inst = Institution(
         name=payload.name.strip(),
@@ -251,6 +280,7 @@ def submit_institution_onboarding(
         admin_full_name=payload.admin_full_name.strip(),
         admin_email=payload.admin_email.strip().lower(),
         admin_school_id=(payload.admin_school_id or "").strip() or None,
+        initial_structure_json=json.dumps(initial_structure_payload) if initial_structure_payload else None,
     )
     with tenant_bypass():
         db.add(inst)
@@ -358,18 +388,55 @@ def approve_institution(
                 db.flush()
                 db.add(UserRole(user_id=admin_user.id, role="system_admin", assigned_by_id=actor.id if actor else None))
 
-        # Provision starter department(s) if institution currently has none
+        # Provision starter schools/faculties, departments & programs from onboarding structure (or fallback)
         dept_count = db.query(Department).filter(Department.institution_id == inst.id).count()
         if dept_count == 0:
-            starter_depts = [d.strip() for d in (initial_departments or []) if d and d.strip()]
-            if not starter_depts:
-                starter_depts = ["Graduate Studies & Research"]
-            for dept_name in starter_depts:
+            from app.services.department_service import serialize_programs
+
+            seen_dept_names: set[str] = set()
+            structured = _parse_initial_structure(getattr(inst, "initial_structure_json", None))
+            for fac in structured:
+                fac_name = str(fac.get("faculty_name") or "").strip() or (inst.short_name or inst.name)
+                fac_depts = fac.get("departments") or []
+                if not fac_depts:
+                    # Create a general department under this faculty so the faculty appears immediately
+                    d_name = fac_name
+                    if d_name.lower() not in seen_dept_names:
+                        seen_dept_names.add(d_name.lower())
+                        db.add(Department(institution_id=inst.id, faculty_name=fac_name, name=d_name))
+                for d_item in fac_depts:
+                    d_name = str(d_item.get("name") or "").strip() if isinstance(d_item, dict) else str(d_item).strip()
+                    if not d_name or d_name.lower() in seen_dept_names:
+                        continue
+                    seen_dept_names.add(d_name.lower())
+                    d_progs = d_item.get("programs") if isinstance(d_item, dict) else []
+                    db.add(
+                        Department(
+                            institution_id=inst.id,
+                            faculty_name=fac_name,
+                            name=d_name,
+                            programs=serialize_programs(d_progs),
+                        )
+                    )
+
+            for dept_name in (initial_departments or []):
+                clean_dn = (dept_name or "").strip()
+                if clean_dn and clean_dn.lower() not in seen_dept_names:
+                    seen_dept_names.add(clean_dn.lower())
+                    db.add(
+                        Department(
+                            institution_id=inst.id,
+                            faculty_name=inst.short_name or inst.name,
+                            name=clean_dn,
+                        )
+                    )
+
+            if not seen_dept_names:
                 db.add(
                     Department(
                         institution_id=inst.id,
                         faculty_name=inst.short_name or inst.name,
-                        name=dept_name,
+                        name="Graduate Studies & Research",
                     )
                 )
 

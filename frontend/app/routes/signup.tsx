@@ -99,13 +99,27 @@ export default function SignupPage() {
         .filter(Boolean),
     [tenant?.allowed_email_domains],
   )
-  const academicAreaOptions = useMemo(() => {
+  const dynamicSchoolOptions = useMemo(() => {
+    const fromApi = Array.from(
+      new Set(
+        tenantDepartments
+          .map((d) => (d.faculty_name || d.institution_name || '').trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b))
+    if (fromApi.length > 0) return fromApi
+    return [tenant?.short_name || tenant?.name || 'General']
+  }, [tenantDepartments, tenant?.short_name, tenant?.name])
+
+  const dynamicDepartmentOptions = useMemo(() => {
     const matched = tenantDepartments
-      .filter((d) => !school || (d.institution_name || '').toLowerCase() === school.toLowerCase())
+      .filter((d) => !school || (d.faculty_name || d.institution_name || '').trim().toLowerCase() === school.trim().toLowerCase())
       .map((d) => d.name)
-    if (matched.length > 0) return matched
-    return ACADEMIC_AREA_OPTIONS_BY_SCHOOL[school] || []
+    if (matched.length > 0) return Array.from(new Set(matched))
+    return DEFAULT_DEPARTMENT_OPTIONS
   }, [school, tenantDepartments])
+
+  const academicAreaOptions = dynamicDepartmentOptions
 
   const getInputValue = (id: string): string => {
     const el = document.getElementById(id) as HTMLInputElement | null
@@ -269,7 +283,7 @@ export default function SignupPage() {
                       <SelectValue placeholder="Select school" />
                     </SelectTrigger>
                     <SelectContent>
-                      {SCHOOL_OPTIONS.map((option) => (
+                      {dynamicSchoolOptions.map((option) => (
                         <SelectItem key={option} value={option}>
                           {option}
                         </SelectItem>
@@ -306,7 +320,7 @@ export default function SignupPage() {
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(DEPARTMENT_OPTIONS_BY_SCHOOL[school] || DEFAULT_DEPARTMENT_OPTIONS).map((option) => (
+                    {dynamicDepartmentOptions.map((option) => (
                       <SelectItem key={option} value={option}>
                         {option}
                       </SelectItem>
@@ -323,7 +337,7 @@ export default function SignupPage() {
                 type="email"
                 value={schoolEmail}
                 onChange={(e) => setSchoolEmail(e.target.value)}
-                placeholder="john.mensah@gimpa.edu.gh"
+                placeholder={`name@${allowedDomains[0] || 'university.edu'}`}
               />
             </div>
 

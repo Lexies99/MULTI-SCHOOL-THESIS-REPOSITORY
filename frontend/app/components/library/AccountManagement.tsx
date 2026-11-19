@@ -17,6 +17,8 @@ import {
   apiAssignUserRole,
   apiAssignDepartmentDean,
   apiAssignDepartmentHod,
+  apiCreateDepartment,
+  apiDeleteDepartment,
   apiDeleteUser,
   apiListDepartments,
   apiSyncDefaultDepartments,
@@ -121,13 +123,14 @@ const GIMPA_DEPARTMENTS_BY_SCHOOL: Record<string, string[]> = {
 }
 
 const getDepartmentsForSchool = (schoolName: string, loadedDepartments: ApiDepartment[]): string[] => {
+  const target = (schoolName || '').trim().toLowerCase()
   const matching = loadedDepartments.filter(
-    (d) => (d.institution_name || '').trim().toLowerCase() === (schoolName || '').trim().toLowerCase()
+    (d) => ((d.faculty_name || d.institution_name || '').trim().toLowerCase() === target)
   )
   if (matching.length > 0) {
     return matching.map((d) => d.name)
   }
-  return GIMPA_DEPARTMENTS_BY_SCHOOL[schoolName] || []
+  return loadedDepartments.map((d) => d.name)
 }
 
 function mapApiUser(user: ApiUser): ManagedAccount {
@@ -982,17 +985,66 @@ export function AccountManagement() {
   })
   const selectedDepartment = visibleDepartments.find((d) => String(d.id) === selectedDepartmentId) || null
 
+  const [newSchoolFacultyName, setNewSchoolFacultyName] = useState('')
+  const [newDeptNameInput, setNewDeptNameInput] = useState('')
+  const [newDeptProgramsInput, setNewDeptProgramsInput] = useState('')
+  const [addingDeptBusy, setAddingDeptBusy] = useState(false)
+  const [addingDeptFeedback, setAddingDeptFeedback] = useState('')
+
+  const handleQuickAddSchoolDept = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newDeptNameInput.trim()) return
+    setAddingDeptBusy(true)
+    setAddingDeptFeedback('')
+    try {
+      const token = await getValidAccessToken()
+      if (!token) throw new Error('Authentication required')
+      const programs = newDeptProgramsInput
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean)
+      await apiCreateDepartment(
+        {
+          name: newDeptNameInput.trim(),
+          faculty_name: newSchoolFacultyName.trim() || undefined,
+          programs,
+        },
+        token,
+      )
+      setNewDeptNameInput('')
+      setNewDeptProgramsInput('')
+      setAddingDeptFeedback('School / Department added successfully!')
+      const refreshed = await apiListDepartments(token)
+      setDepartments(refreshed)
+    } catch (err) {
+      setAddingDeptFeedback(extractErrorMessage(err))
+    } finally {
+      setAddingDeptBusy(false)
+    }
+  }
+
+  const handleQuickDeleteDept = async (dept: ApiDepartment) => {
+    if (!window.confirm(`Delete department "${dept.name}"?`)) return
+    try {
+      const token = await getValidAccessToken()
+      if (!token) return
+      await apiDeleteDepartment(dept.id, token)
+      const refreshed = await apiListDepartments(token)
+      setDepartments(refreshed)
+    } catch (err) {
+      setAddingDeptFeedback(extractErrorMessage(err))
+    }
+  }
+
   const schoolOptions = Array.from(
     new Map(
-      departments.map((d) => [
-        String(d.institution_id),
-        d.institution_name || `School #${d.institution_id}`,
-      ]),
+      departments.map((d) => {
+        const label = (d.faculty_name || d.institution_name || `School #${d.institution_id}`).trim()
+        return [label, label] as [string, string]
+      }),
     ).entries(),
   ).map(([id, label]) => ({ id, label }))
-  const effectiveSchoolOptions = schoolOptions.length > 0
-    ? schoolOptions
-    : DEFAULT_SCHOOL_OPTIONS.map((label) => ({ id: label, label }))
+  const effectiveSchoolOptions = schoolOptions
   const selectedSchoolOption = effectiveSchoolOptions.find((s) => s.id === selectedSchoolKey) || null
   const selectedSchoolName = normalizeText(selectedSchoolOption?.label || selectedSchoolKey)
   const matchesSelectedSchool = (school: string | null | undefined): boolean => {
@@ -1007,10 +1059,15 @@ export function AccountManagement() {
   })
   const schoolDeanSummary = Array.from(
     new Map(
-      departments.map((d) => [String(d.institution_id), d.institution_name || `School #${d.institution_id}`]),
+      departments.map((d) => {
+        const label = (d.faculty_name || d.institution_name || `School #${d.institution_id}`).trim()
+        return [label, label] as [string, string]
+      }),
     ).entries(),
-  ).map(([institutionId, schoolName]) => {
-    const schoolDepartments = departments.filter((d) => String(d.institution_id) === institutionId)
+  ).map(([facultyKey, schoolName]) => {
+    const schoolDepartments = departments.filter(
+      (d) => (d.faculty_name || d.institution_name || `School #${d.institution_id}`).trim() === facultyKey,
+    )
     const deanIds = Array.from(new Set(schoolDepartments.map((d) => d.dean_user_id).filter((v): v is number => typeof v === 'number')))
     const deanLabel =
       deanIds.length === 0
@@ -1018,17 +1075,22 @@ export function AccountManagement() {
         : deanIds.length === 1
           ? displayNameByUserId(deanIds[0])
           : 'Multiple assignments'
-    return { institutionId, schoolName, deanLabel }
+    return { institutionId: facultyKey, schoolName, deanLabel }
   })
 
   const userSchoolNormalized = normalizeText(user?.school)
   const schoolsOverviewData = Array.from(
     new Map(
-      departments.map((d) => [String(d.institution_id), d.institution_name || `School #${d.institution_id}`]),
+      departments.map((d) => {
+        const label = (d.faculty_name || d.institution_name || `School #${d.institution_id}`).trim()
+        return [label, label] as [string, string]
+      }),
     ).entries(),
-  ).map(([institutionId, schoolName]) => {
+  ).map(([facultyKey, schoolName]) => {
     const schoolKey = normalizeText(schoolName)
-    const schoolDepartments = departments.filter((d) => String(d.institution_id) === institutionId)
+    const schoolDepartments = departments.filter(
+      (d) => (d.faculty_name || d.institution_name || `School #${d.institution_id}`).trim() === facultyKey,
+    )
     const deanIds = Array.from(
       new Set(
         schoolDepartments
@@ -1037,7 +1099,7 @@ export function AccountManagement() {
       )
     )
     return {
-      institutionId,
+      institutionId: facultyKey,
       schoolName,
       schoolKey,
       deanIds,
@@ -1096,13 +1158,9 @@ export function AccountManagement() {
 
   useEffect(() => {
     if (!hasRole('system_admin')) return
-    if (selectedSchoolKey) return
+    if (selectedSchoolKey && schoolOptions.some((s) => s.id === selectedSchoolKey)) return
     if (schoolOptions.length > 0) {
       setSelectedSchoolKey(schoolOptions[0].id)
-      return
-    }
-    if (DEFAULT_SCHOOL_OPTIONS.length > 0) {
-      setSelectedSchoolKey(DEFAULT_SCHOOL_OPTIONS[0])
     }
   }, [departments.length, selectedSchoolKey])
 
@@ -1628,37 +1686,98 @@ export function AccountManagement() {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 3: SCHOOLS & FACULTIES OVERVIEW                                       */}
+      {/* TAB 3: SCHOOLS & FACULTIES OVERVIEW + ADD SCHOOL / DEPARTMENT             */}
       {/* ========================================================================= */}
       {activeSubTab === 'schools' && canViewAssignments && (
         <div className="space-y-6">
-          {schoolsOverviewData.map((schoolInfo) => (
-            <div key={schoolInfo.schoolName} className="fp-card space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#eaece4] pb-3 gap-2">
-                <div className="flex items-center gap-3">
-                  <div className="fp-avatar">
-                    <Building2 className="size-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-[16px] text-[#1a1d1a]">{schoolInfo.schoolName}</h4>
-                    <p className="text-[12px] text-[#6e766b]">
-                      Dean: {schoolInfo.deanIds.length === 0 ? 'Not assigned' : schoolInfo.deanIds.map(uid => displayNameByUserId(uid)).join(', ')}
-                    </p>
-                  </div>
-                </div>
+          {canManageAccounts && (
+            <div className="fp-card space-y-4">
+              <div>
+                <h4 className="font-bold text-[16px] text-[#1a1d1a]">Add School / Faculty, Department & Programs</h4>
+                <p className="text-[12.5px] text-[#6e766b] mt-0.5">
+                  Create schools, colleges, departments, and academic programs specific to your institution.
+                </p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {schoolInfo.depts.map((dept) => (
-                  <div key={dept.id} className="rounded-xl bg-white border border-[#eaece4] p-4 flex flex-col justify-between">
-                    <span className="font-bold text-[14px] text-[#1a1d1a]">{dept.name}</span>
-                    <div className="text-[12px] mt-2 pt-2 border-t border-[#eaece4] text-[#6e766b]">
-                      HOD: <strong className="text-[#1a1d1a]">{dept.hod_user_id ? displayNameByUserId(dept.hod_user_id) : 'Not assigned'}</strong>
+              <form onSubmit={handleQuickAddSchoolDept} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <Input
+                  value={newSchoolFacultyName}
+                  onChange={(e) => setNewSchoolFacultyName(e.target.value)}
+                  placeholder="School / College / Faculty (e.g. College of Science)"
+                />
+                <Input
+                  required
+                  value={newDeptNameInput}
+                  onChange={(e) => setNewDeptNameInput(e.target.value)}
+                  placeholder="Department Name *"
+                />
+                <Input
+                  value={newDeptProgramsInput}
+                  onChange={(e) => setNewDeptProgramsInput(e.target.value)}
+                  placeholder="Programs (comma-separated, optional)"
+                />
+                <Button type="submit" disabled={addingDeptBusy}>
+                  {addingDeptBusy ? 'Adding...' : '+ Add School / Dept'}
+                </Button>
+              </form>
+              {addingDeptFeedback && (
+                <p className="text-xs font-semibold text-[#3b7a57]">{addingDeptFeedback}</p>
+              )}
+            </div>
+          )}
+
+          {schoolsOverviewData.length === 0 ? (
+            <div className="fp-card text-center py-10 text-[#6e766b] text-[13.5px]">
+              No schools or departments have been added yet. Use the form above to add your institution&apos;s schools and departments.
+            </div>
+          ) : (
+            schoolsOverviewData.map((schoolInfo) => (
+              <div key={schoolInfo.schoolName} className="fp-card space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#eaece4] pb-3 gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className="fp-avatar">
+                      <Building2 className="size-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-[16px] text-[#1a1d1a]">{schoolInfo.schoolName}</h4>
+                      <p className="text-[12px] text-[#6e766b]">
+                        Dean: {schoolInfo.deanIds.length === 0 ? 'Not assigned' : schoolInfo.deanIds.map(uid => displayNameByUserId(uid)).join(', ')}
+                      </p>
                     </div>
                   </div>
-                ))}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {schoolInfo.depts.map((dept) => (
+                    <div key={dept.id} className="rounded-xl bg-white border border-[#eaece4] p-4 flex flex-col justify-between gap-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-bold text-[14px] text-[#1a1d1a]">{dept.name}</span>
+                        {canManageAccounts && (
+                          <button
+                            type="button"
+                            onClick={() => void handleQuickDeleteDept(dept)}
+                            className="text-xs text-[#c93b2b] hover:underline bg-transparent border-0 cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      {dept.programs && dept.programs.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {dept.programs.map((prog) => (
+                            <Badge key={prog} variant="secondary" className="text-[11px]">
+                              {prog}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      <div className="text-[12px] mt-1 pt-2 border-t border-[#eaece4] text-[#6e766b]">
+                        HOD: <strong className="text-[#1a1d1a]">{dept.hod_user_id ? displayNameByUserId(dept.hod_user_id) : 'Not assigned'}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
 

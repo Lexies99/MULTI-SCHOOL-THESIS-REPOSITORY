@@ -43,6 +43,8 @@ class Institution(Base):
     admin_full_name = Column(String(255), nullable=True)
     admin_email = Column(String(255), nullable=True)
     admin_school_id = Column(String(64), nullable=True)
+    # Optional JSON list of initial faculties/schools, departments & programs submitted during onboarding
+    initial_structure_json = Column(Text, nullable=True)
 
     # Platform operator approval tracking
     approval_notes = Column(Text, nullable=True)

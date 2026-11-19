@@ -108,23 +108,48 @@ export default function LoginPage() {
           </span>
         </div>
 
-        {/* Center Brand Identity & Illustration */}
+        {/* Center Brand Identity & Institution Logo Showcase */}
         <div className="flex-1 flex flex-col items-center justify-center py-6 lg:py-0 text-center max-w-sm mx-auto">
-          <svg
-            viewBox="0 0 420 320"
-            className="w-full max-w-[300px] h-auto select-none mb-4"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <circle cx="210" cy="160" r="126" fill="rgba(255,255,255,0.45)" />
-            <path
-              d="M115 232 C135 190, 165 170, 195 168 C220 166, 240 140, 265 142 C288 144, 305 162, 325 154 L325 232 Z"
-              fill="var(--fp-olive)"
-            />
-            <line x1="110" y1="232" x2="328" y2="232" stroke="currentColor" strokeWidth="2" opacity="0.6" />
-            <circle cx="195" cy="168" r="6" fill="currentColor" />
-            <circle cx="265" cy="142" r="6" fill="currentColor" />
-          </svg>
+          {tenant?.logo_url ? (
+            <div
+              className="flex items-center justify-center mb-6 shadow-sm"
+              style={{
+                width: 196,
+                height: 196,
+                borderRadius: '50%',
+                background: '#ffffff',
+                border: '4px solid rgba(255, 255, 255, 0.85)',
+                padding: 24,
+                boxShadow: '0 12px 32px rgba(0, 0, 0, 0.08)',
+              }}
+            >
+              <img
+                src={tenant.logo_url}
+                alt={`${brandFull} logo`}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                }}
+              />
+            </div>
+          ) : (
+            <svg
+              viewBox="0 0 420 320"
+              className="w-full max-w-[300px] h-auto select-none mb-4"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <circle cx="210" cy="160" r="126" fill="rgba(255,255,255,0.45)" />
+              <path
+                d="M115 232 C135 190, 165 170, 195 168 C220 166, 240 140, 265 142 C288 144, 305 162, 325 154 L325 232 Z"
+                fill="var(--fp-olive)"
+              />
+              <line x1="110" y1="232" x2="328" y2="232" stroke="currentColor" strokeWidth="2" opacity="0.6" />
+              <circle cx="195" cy="168" r="6" fill="currentColor" />
+              <circle cx="265" cy="142" r="6" fill="currentColor" />
+            </svg>
+          )}
           <h2 className="text-[22px] font-bold tracking-tight mb-2">{brandFull}</h2>
           <p className="text-[13px] opacity-80 leading-relaxed">
             Dedicated institutional thesis submission, academic supervision, examination, and digital research repository.

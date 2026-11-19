@@ -1,7 +1,26 @@
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+
+
+def parse_programs(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+    except Exception:
+        pass
+    return [part.strip() for part in str(raw).split(",") if part.strip()]
+
+
+def serialize_programs(programs: list[str] | None) -> str | None:
+    cleaned = list(dict.fromkeys(str(p).strip() for p in (programs or []) if str(p).strip()))
+    return json.dumps(cleaned) if cleaned else None
 
 from app.core.tenant import current_tenant_id, tenant_bypass
 from app.models.department import Department
@@ -93,6 +112,7 @@ def create_department_for_tenant(
     institution_id: int,
     name: str,
     faculty_name: str | None = None,
+    programs: list[str] | None = None,
     hod_user_id: int | None = None,
     dean_user_id: int | None = None,
 ) -> Department:
@@ -114,6 +134,7 @@ def create_department_for_tenant(
         institution_id=institution_id,
         faculty_name=(faculty_name or "").strip() or None,
         name=clean_name,
+        programs=serialize_programs(programs),
         hod_user_id=hod_user_id,
         dean_user_id=dean_user_id,
     )
@@ -121,6 +142,67 @@ def create_department_for_tenant(
     db.commit()
     db.refresh(dept)
     return dept
+
+
+def update_department_for_tenant(
+    db: Session,
+    *,
+    department_id: int,
+    institution_id: int,
+    name: str | None = None,
+    faculty_name: str | None = None,
+    programs: list[str] | None = None,
+) -> Department:
+    dept = (
+        db.query(Department)
+        .filter(Department.id == department_id, Department.institution_id == institution_id)
+        .first()
+    )
+    if not dept:
+        raise ValueError("Department not found in this institution")
+
+    if name is not None:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("Department name cannot be empty")
+        dup = (
+            db.query(Department)
+            .filter(
+                Department.institution_id == institution_id,
+                func.lower(Department.name) == clean_name.lower(),
+                Department.id != dept.id,
+            )
+            .first()
+        )
+        if dup:
+            raise ValueError(f"Department '{clean_name}' already exists in this institution")
+        dept.name = clean_name
+    if faculty_name is not None:
+        dept.faculty_name = faculty_name.strip() or None
+    if programs is not None:
+        dept.programs = serialize_programs(programs)
+
+    db.add(dept)
+    db.commit()
+    db.refresh(dept)
+    return dept
+
+
+def delete_department_for_tenant(
+    db: Session,
+    *,
+    department_id: int,
+    institution_id: int,
+) -> None:
+    dept = (
+        db.query(Department)
+        .filter(Department.id == department_id, Department.institution_id == institution_id)
+        .first()
+    )
+    if not dept:
+        raise ValueError("Department not found in this institution")
+    db.delete(dept)
+    db.commit()
 
 
 def assign_hod(db: Session, department_id: int, user_id: int, assigned_by_id: int | None = None) -> Department:

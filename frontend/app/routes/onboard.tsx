@@ -6,14 +6,18 @@ import {
   Building2,
   CheckCircle2,
   Globe,
+  GraduationCap,
   Palette,
+  Plus,
   RotateCcw,
   ShieldCheck,
+  Trash2,
   Upload,
 } from "lucide-react";
 import {
   apiCheckSlugAvailability,
   apiOnboardInstitution,
+  type ApiInitialFacultyInput,
   type ApiInstitutionAdmin,
   type ApiSlugAvailability,
 } from "../lib/api";
@@ -54,6 +58,80 @@ export default function OnboardInstitutionPage() {
   const [adminFullName, setAdminFullName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminSchoolId, setAdminSchoolId] = useState("");
+
+  // Optional Initial Schools/Faculties, Departments & Programs builder
+  interface DraftDeptRow {
+    id: string;
+    name: string;
+    programsText: string;
+  }
+  interface DraftFacultyRow {
+    id: string;
+    faculty_name: string;
+    departments: DraftDeptRow[];
+  }
+  const [faculties, setFaculties] = useState<DraftFacultyRow[]>([
+    {
+      id: "fac-1",
+      faculty_name: "",
+      departments: [{ id: "dept-1", name: "", programsText: "" }],
+    },
+  ]);
+
+  const addFacultyRow = () => {
+    setFaculties((prev) => [
+      ...prev,
+      {
+        id: `fac-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        faculty_name: "",
+        departments: [{ id: `dept-${Date.now()}`, name: "", programsText: "" }],
+      },
+    ]);
+  };
+
+  const removeFacultyRow = (facId: string) => {
+    setFaculties((prev) => (prev.length <= 1 ? prev : prev.filter((f) => f.id !== facId)));
+  };
+
+  const updateFacultyName = (facId: string, value: string) => {
+    setFaculties((prev) => prev.map((f) => (f.id === facId ? { ...f, faculty_name: value } : f)));
+  };
+
+  const addDeptToFaculty = (facId: string) => {
+    setFaculties((prev) =>
+      prev.map((f) =>
+        f.id === facId
+          ? {
+              ...f,
+              departments: [
+                ...f.departments,
+                { id: `dept-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: "", programsText: "" },
+              ],
+            }
+          : f,
+      ),
+    );
+  };
+
+  const removeDeptFromFaculty = (facId: string, deptId: string) => {
+    setFaculties((prev) =>
+      prev.map((f) =>
+        f.id === facId
+          ? { ...f, departments: f.departments.length <= 1 ? f.departments : f.departments.filter((d) => d.id !== deptId) }
+          : f,
+      ),
+    );
+  };
+
+  const updateDeptField = (facId: string, deptId: string, field: "name" | "programsText", value: string) => {
+    setFaculties((prev) =>
+      prev.map((f) =>
+        f.id === facId
+          ? { ...f, departments: f.departments.map((d) => (d.id === deptId ? { ...d, [field]: value } : d)) }
+          : f,
+      ),
+    );
+  };
 
   // Branding state
   const [primaryColor, setPrimaryColor] = useState(DEFAULT_INSTITUTION_BRANDING.primary_color);
@@ -168,6 +246,25 @@ export default function OnboardInstitutionPage() {
       return;
     }
 
+    const initialStructure: ApiInitialFacultyInput[] = faculties
+      .map((f) => ({
+        faculty_name: f.faculty_name.trim(),
+        departments: f.departments
+          .map((d) => ({
+            name: d.name.trim(),
+            programs: d.programsText
+              .split(",")
+              .map((p) => p.trim())
+              .filter(Boolean),
+          }))
+          .filter((d) => d.name.length > 0),
+      }))
+      .filter((f) => f.faculty_name.length > 0 || f.departments.length > 0)
+      .map((f) => ({
+        faculty_name: f.faculty_name || shortName.trim() || name.trim(),
+        departments: f.departments,
+      }));
+
     setSubmitting(true);
     try {
       const created = await apiOnboardInstitution(
@@ -185,6 +282,7 @@ export default function OnboardInstitutionPage() {
           admin_full_name: adminFullName.trim(),
           admin_email: adminEmail.trim().toLowerCase(),
           admin_school_id: adminSchoolId.trim() || undefined,
+          initial_structure: initialStructure.length > 0 ? initialStructure : undefined,
           primary_color: primaryColor.toUpperCase(),
           secondary_color: secondaryColor.toUpperCase(),
           accent_color: accentColor.toUpperCase(),
@@ -533,12 +631,112 @@ export default function OnboardInstitutionPage() {
               </div>
             </section>
 
-            {/* Section 3: School Branding, Logo & Colours */}
+            {/* Section 3: Schools / Faculties, Departments & Programs */}
+            <section className="fp-card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <GraduationCap style={{ width: 20, height: 20, color: "var(--fp-olive)" }} />
+                  <div>
+                    <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>3. Schools / Faculties, Departments & Programs</h2>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      Define your institution&apos;s own colleges, faculties, departments, and programs (you can also add or edit them later).
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={addFacultyRow}
+                  className="btn-fp-sage"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", fontSize: 12.5 }}
+                >
+                  <Plus style={{ width: 14, height: 14 }} />
+                  <span>Add School / Faculty</span>
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {faculties.map((fac, fIdx) => (
+                  <div
+                    key={fac.id}
+                    style={{
+                      padding: 14,
+                      borderRadius: 10,
+                      border: "1px solid var(--border-color)",
+                      background: "var(--bg-main)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        value={fac.faculty_name}
+                        onChange={(e) => updateFacultyName(fac.id, e.target.value)}
+                        placeholder={`School / College / Faculty #${fIdx + 1} (e.g. College of Engineering)`}
+                        style={{ flex: 1, padding: "9px 12px", fontSize: 13.5, fontWeight: 600 }}
+                      />
+                      {faculties.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeFacultyRow(fac.id)}
+                          className="btn-fp-outline"
+                          style={{ padding: "8px 10px", color: "#c93b2b" }}
+                          title="Remove School / Faculty"
+                        >
+                          <Trash2 style={{ width: 14, height: 14 }} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingLeft: 12, borderLeft: "2px solid var(--border-color)" }}>
+                      {fac.departments.map((dept, dIdx) => (
+                        <div key={dept.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.2fr) auto", gap: 8, alignItems: "center" }}>
+                          <input
+                            value={dept.name}
+                            onChange={(e) => updateDeptField(fac.id, dept.id, "name", e.target.value)}
+                            placeholder={`Department #${dIdx + 1} (e.g. Computer Science)`}
+                            style={{ padding: "8px 10px", fontSize: 13 }}
+                          />
+                          <input
+                            value={dept.programsText}
+                            onChange={(e) => updateDeptField(fac.id, dept.id, "programsText", e.target.value)}
+                            placeholder="Programs (comma-separated, e.g. BSc CS, MSc AI, PhD CS)"
+                            style={{ padding: "8px 10px", fontSize: 12.5 }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeDeptFromFaculty(fac.id, dept.id)}
+                            disabled={fac.departments.length <= 1}
+                            className="btn-fp-outline"
+                            style={{ padding: "7px 9px", opacity: fac.departments.length <= 1 ? 0.4 : 1 }}
+                            title="Remove Department"
+                          >
+                            <Trash2 style={{ width: 13, height: 13 }} />
+                          </button>
+                        </div>
+                      ))}
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => addDeptToFaculty(fac.id)}
+                          style={{ background: "none", border: "none", color: "var(--fp-olive)", fontSize: 12, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 0", cursor: "pointer" }}
+                        >
+                          <Plus style={{ width: 13, height: 13 }} />
+                          <span>Add another department to this school</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Section 4: School Branding, Logo & Colours */}
             <section className="fp-card">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 18 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Palette style={{ width: 20, height: 20, color: "var(--fp-olive)" }} />
-                  <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>3. School Branding & Colour Identity</h2>
+                  <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>4. School Branding & Colour Identity</h2>
                 </div>
                 <button
                   type="button"
