@@ -3,12 +3,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_current_user, require_any_role
+from app.api.deps import get_db, get_current_user, require_any_role, resolve_public_tenant
+from app.models.institution import Institution
 from app.models.user import User
 from app.schemas.department import (
     AssignHODRequest,
     AssignDeanRequest,
     AddSupervisorRequest,
+    DepartmentCreate,
     RemoveSupervisorRequest,
     DepartmentRead,
     DepartmentSupervisorRead,
@@ -17,6 +19,7 @@ from app.services.department_service import (
     assign_hod,
     assign_dean,
     add_department_supervisor,
+    create_department_for_tenant,
     remove_department_supervisor,
     get_department_supervisors,
     get_department,
@@ -31,10 +34,15 @@ router = APIRouter(prefix="/departments", tags=["departments"])
 
 
 def _to_department_read(department) -> DepartmentRead:
+    inst_name = (
+        getattr(department, "faculty_name", None)
+        or (department.institution.name if getattr(department, "institution", None) else None)
+    )
     return DepartmentRead(
         id=department.id,
         institution_id=department.institution_id,
-        institution_name=(department.institution.name if getattr(department, "institution", None) else None),
+        institution_name=inst_name,
+        faculty_name=getattr(department, "faculty_name", None) or inst_name,
         name=department.name,
         hod_user_id=department.hod_user_id,
         dean_user_id=department.dean_user_id,
@@ -44,11 +52,35 @@ def _to_department_read(department) -> DepartmentRead:
 @router.get("", response_model=list[DepartmentRead])
 def list_all_departments(
     institution_id: int | None = None,
+    tenant: Institution = Depends(resolve_public_tenant),
     db: Session = Depends(get_db),
 ) -> list[DepartmentRead]:
-    """List all departments, optionally filtered by institution."""
-    departments = list_departments(db, institution_id=institution_id)
+    """List departments scoped strictly to the resolved institution tenant."""
+    departments = list_departments(db, institution_id=tenant.id)
     return [_to_department_read(d) for d in departments]
+
+
+@router.post("", response_model=DepartmentRead, status_code=status.HTTP_201_CREATED)
+def create_department_endpoint(
+    payload: DepartmentCreate,
+    current_user: User = Depends(require_any_role("system_admin", "deputy_rector", "dean")),
+    db: Session = Depends(get_db),
+) -> DepartmentRead:
+    """Create a new department/faculty within the authenticated administrator's institution."""
+    if not current_user.institution_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active institution required")
+    try:
+        dept = create_department_for_tenant(
+            db,
+            institution_id=current_user.institution_id,
+            name=payload.name,
+            faculty_name=payload.faculty_name,
+            hod_user_id=payload.hod_user_id,
+            dean_user_id=payload.dean_user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _to_department_read(dept)
 
 
 @router.post("/sync-defaults", response_model=list[DepartmentRead])
@@ -56,19 +88,20 @@ def sync_default_departments_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_any_role("system_admin", "deputy_rector", "dean")),
 ) -> list[DepartmentRead]:
-    """Ensure all default GIMPA schools & departments exist and are linked to Deans."""
-    departments = ensure_default_departments(db)
+    """Ensure default schools & departments exist for the current institution and link Deans."""
+    departments = ensure_default_departments(db, institution_id=current_user.institution_id)
     return [_to_department_read(d) for d in departments]
 
 
 @router.get("/{department_id}", response_model=DepartmentRead)
 def get_dept(
     department_id: int,
+    tenant: Institution = Depends(resolve_public_tenant),
     db: Session = Depends(get_db),
 ) -> DepartmentRead:
-    """Get a specific department."""
+    """Get a specific department within the resolved institution."""
     department = get_department(db, department_id)
-    if not department:
+    if not department or department.institution_id != tenant.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
     return _to_department_read(department)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 
 from app.models.base import Base
@@ -9,12 +9,15 @@ from app.models.base import Base
 
 class School(Base):
     __tablename__ = "schools"
+    __table_args__ = (UniqueConstraint("institution_id", "name", name="uq_school_institution_name"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False, unique=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
     dean_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    institution = relationship("Institution", foreign_keys=[institution_id])
     dean = relationship("User", foreign_keys=[dean_user_id])
 
 
@@ -22,6 +25,7 @@ class Thesis(Base):
     __tablename__ = "theses"
 
     id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     supervisor_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)

@@ -11,7 +11,8 @@ class Department(Base):
     __table_args__ = (UniqueConstraint("institution_id", "name", name="uq_department_institution_name"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    faculty_name = Column(String(255), nullable=True, index=True)
     name = Column(String(255), nullable=False, index=True)
     hod_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     dean_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)

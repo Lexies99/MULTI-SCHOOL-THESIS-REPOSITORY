@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.tenant import current_tenant_id, tenant_bypass
 from app.models.department import Department
 from app.models.department_supervisor import DepartmentSupervisor
 from app.models.institution import Institution
@@ -30,69 +32,110 @@ GIMPA_DEFAULT_SCHOOLS_AND_DEPARTMENTS: dict[str, list[str]] = {
 }
 
 
-def ensure_default_departments(db: Session) -> list[Department]:
-    """Ensures all standard GIMPA schools and departments exist in the DB, and auto-syncs deans."""
-    for school_name, department_names in GIMPA_DEFAULT_SCHOOLS_AND_DEPARTMENTS.items():
-        institution = db.query(Institution).filter(Institution.name.ilike(school_name.strip())).first()
-        if not institution:
-            institution = Institution(name=school_name.strip())
-            db.add(institution)
-            db.flush()
+def ensure_default_departments(db: Session, institution_id: int | None = None) -> list[Department]:
+    """Ensures default departments exist for the target tenant (GIMPA defaults for GIMPA tenant)."""
+    target_tid = institution_id or current_tenant_id.get()
+    with tenant_bypass():
+        if target_tid is not None:
+            tenant = db.query(Institution).filter(Institution.id == target_tid).first()
+        else:
+            tenant = db.query(Institution).filter(func.lower(Institution.slug) == "gimpa").first()
+    if not tenant:
+        return []
 
-        for department_name in department_names:
-            dept = (
-                db.query(Department)
-                .filter(
-                    Department.institution_id == institution.id,
-                    Department.name.ilike(department_name.strip()),
+    if (tenant.slug or "").lower() == "gimpa":
+        for faculty_name, department_names in GIMPA_DEFAULT_SCHOOLS_AND_DEPARTMENTS.items():
+            for department_name in department_names:
+                dept = (
+                    db.query(Department)
+                    .filter(
+                        Department.institution_id == tenant.id,
+                        func.lower(Department.name) == department_name.strip().lower(),
+                    )
+                    .first()
                 )
-                .first()
-            )
-            if not dept:
-                dept = Department(
-                    institution_id=institution.id,
-                    name=department_name.strip(),
-                )
-                db.add(dept)
-                db.flush()
+                if not dept:
+                    dept = Department(
+                        institution_id=tenant.id,
+                        faculty_name=faculty_name.strip(),
+                        name=department_name.strip(),
+                    )
+                    db.add(dept)
+                    db.flush()
+                elif not dept.faculty_name:
+                    dept.faculty_name = faculty_name.strip()
+                    db.add(dept)
 
-    # Auto-link Deans who have role 'dean' and matching school
-    deans = db.query(User).filter(User.role == "dean").all()
+    # Auto-link Deans within this tenant who have role 'dean' and matching faculty/school
+    deans = (
+        db.query(User)
+        .filter(User.institution_id == tenant.id, User.role == "dean")
+        .all()
+    )
     for dean in deans:
         if dean.school:
             clean_school = dean.school.strip().lower()
-            matching_insts = db.query(Institution).all()
-            target_inst = None
-            for inst in matching_insts:
-                if clean_school in inst.name.lower() or inst.name.lower() in clean_school:
-                    target_inst = inst
-                    break
-            if target_inst:
-                depts = db.query(Department).filter(Department.institution_id == target_inst.id).all()
-                for d in depts:
-                    if d.dean_user_id is None or d.dean_user_id != dean.id:
+            depts = db.query(Department).filter(Department.institution_id == tenant.id).all()
+            for d in depts:
+                fac = (d.faculty_name or "").strip().lower()
+                if fac and (clean_school in fac or fac in clean_school):
+                    if d.dean_user_id != dean.id:
                         d.dean_user_id = dean.id
                         db.add(d)
 
     db.commit()
-    return db.query(Department).order_by(Department.name).all()
+    return db.query(Department).filter(Department.institution_id == tenant.id).order_by(Department.name).all()
+
+
+def create_department_for_tenant(
+    db: Session,
+    *,
+    institution_id: int,
+    name: str,
+    faculty_name: str | None = None,
+    hod_user_id: int | None = None,
+    dean_user_id: int | None = None,
+) -> Department:
+    clean_name = (name or "").strip()
+    if not clean_name:
+        raise ValueError("Department name is required")
+    existing = (
+        db.query(Department)
+        .filter(
+            Department.institution_id == institution_id,
+            func.lower(Department.name) == clean_name.lower(),
+        )
+        .first()
+    )
+    if existing:
+        raise ValueError(f"Department '{clean_name}' already exists in this institution")
+
+    dept = Department(
+        institution_id=institution_id,
+        faculty_name=(faculty_name or "").strip() or None,
+        name=clean_name,
+        hod_user_id=hod_user_id,
+        dean_user_id=dean_user_id,
+    )
+    db.add(dept)
+    db.commit()
+    db.refresh(dept)
+    return dept
 
 
 def assign_hod(db: Session, department_id: int, user_id: int, assigned_by_id: int | None = None) -> Department:
-    """Assign a user as HOD for a department."""
+    """Assign a user as HOD for a department within the same institution."""
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise ValueError(f"Department {department_id} not found")
-    
+
     user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise ValueError(f"User {user_id} not found")
-    
-    # Ensure user has HOD role
+    if not user or user.institution_id != department.institution_id:
+        raise ValueError(f"User {user_id} not found in this institution")
+
     if not has_role(db, user, "hod"):
         assign_role(db, user, "hod", assigned_by_id=assigned_by_id)
-    
-    # Also update user's department text field if blank
+
     if not user.department:
         user.department = department.name
         db.add(user)
@@ -105,32 +148,27 @@ def assign_hod(db: Session, department_id: int, user_id: int, assigned_by_id: in
 
 
 def assign_dean(db: Session, department_id: int, user_id: int, assigned_by_id: int | None = None) -> Department:
-    """Assign a user as Dean for a school (all departments in the institution)."""
+    """Assign a user as Dean for a faculty/school within the same institution."""
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise ValueError(f"Department {department_id} not found")
-    
+
     user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise ValueError(f"User {user_id} not found")
-    
-    # Ensure user has dean role
+    if not user or user.institution_id != department.institution_id:
+        raise ValueError(f"User {user_id} not found in this institution")
+
     if not has_role(db, user, "dean"):
         assign_role(db, user, "dean", assigned_by_id=assigned_by_id)
 
-    # Also update user's school text field if blank and institution exists
-    if getattr(department, "institution", None) and getattr(department.institution, "name", None):
-        if not user.school:
-            user.school = department.institution.name
-            db.add(user)
+    faculty_label = department.faculty_name or (department.institution.name if getattr(department, "institution", None) else None)
+    if faculty_label and not user.school:
+        user.school = faculty_label
+        db.add(user)
 
-    # Enforce one dean per school by updating all departments in the same institution.
-    school_departments = (
-        db.query(Department)
-        .filter(Department.institution_id == department.institution_id)
-        .all()
-    )
-    for school_department in school_departments:
+    query = db.query(Department).filter(Department.institution_id == department.institution_id)
+    if department.faculty_name:
+        query = query.filter(func.lower(Department.faculty_name) == department.faculty_name.strip().lower())
+    for school_department in query.all():
         school_department.dean_user_id = user_id
         db.add(school_department)
 
@@ -140,20 +178,18 @@ def assign_dean(db: Session, department_id: int, user_id: int, assigned_by_id: i
 
 
 def add_department_supervisor(db: Session, department_id: int, supervisor_user_id: int) -> DepartmentSupervisor:
-    """Add a project supervisor to a department."""
+    """Add a project supervisor to a department within the same institution."""
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise ValueError(f"Department {department_id} not found")
-    
+
     user = db.query(User).filter(User.id == supervisor_user_id).first()
-    if not user:
-        raise ValueError(f"User {supervisor_user_id} not found")
-    
-    # Ensure user has project_supervisor role
+    if not user or user.institution_id != department.institution_id:
+        raise ValueError(f"User {supervisor_user_id} not found in this institution")
+
     if not has_role(db, user, "project_supervisor"):
         assign_role(db, user, "project_supervisor")
-    
-    # Check if already exists
+
     existing = (
         db.query(DepartmentSupervisor)
         .filter(
@@ -162,7 +198,7 @@ def add_department_supervisor(db: Session, department_id: int, supervisor_user_i
         )
         .first()
     )
-    
+
     if existing:
         if not existing.active:
             existing.active = True
@@ -170,7 +206,7 @@ def add_department_supervisor(db: Session, department_id: int, supervisor_user_i
             db.commit()
             db.refresh(existing)
         return existing
-    
+
     supervisor = DepartmentSupervisor(
         department_id=department_id,
         supervisor_user_id=supervisor_user_id,
@@ -183,7 +219,6 @@ def add_department_supervisor(db: Session, department_id: int, supervisor_user_i
 
 
 def remove_department_supervisor(db: Session, department_id: int, supervisor_user_id: int) -> None:
-    """Remove a project supervisor from a department."""
     supervisor = (
         db.query(DepartmentSupervisor)
         .filter(
@@ -192,7 +227,7 @@ def remove_department_supervisor(db: Session, department_id: int, supervisor_use
         )
         .first()
     )
-    
+
     if supervisor:
         supervisor.active = False
         db.add(supervisor)
@@ -200,7 +235,9 @@ def remove_department_supervisor(db: Session, department_id: int, supervisor_use
 
 
 def get_department_supervisors(db: Session, department_id: int, active_only: bool = True) -> list[DepartmentSupervisor]:
-    """Get supervisors for a department."""
+    dept = db.query(Department).filter(Department.id == department_id).first()
+    if not dept:
+        return []
     query = db.query(DepartmentSupervisor).filter(DepartmentSupervisor.department_id == department_id)
     if active_only:
         query = query.filter(DepartmentSupervisor.active.is_(True))
@@ -208,17 +245,18 @@ def get_department_supervisors(db: Session, department_id: int, active_only: boo
 
 
 def get_department(db: Session, department_id: int) -> Department | None:
-    """Get a department by ID."""
     return db.query(Department).filter(Department.id == department_id).first()
 
 
 def list_departments(db: Session, institution_id: int | None = None) -> list[Department]:
-    """List departments, optionally filtered by institution. Auto-initializes if empty."""
-    count = db.query(Department).count()
-    if count == 0:
+    target_tid = institution_id or current_tenant_id.get()
+    query = db.query(Department)
+    if target_tid is not None:
+        query = query.filter(Department.institution_id == target_tid)
+        if query.count() == 0:
+            ensure_default_departments(db, institution_id=target_tid)
+            query = db.query(Department).filter(Department.institution_id == target_tid)
+    elif db.query(Department).count() == 0:
         ensure_default_departments(db)
 
-    query = db.query(Department)
-    if institution_id is not None:
-        query = query.filter(Department.institution_id == institution_id)
     return query.order_by(Department.name).all()

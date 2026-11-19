@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../context/AuthContext'
+import { useTenant } from '../context/TenantContext'
 import { AlertCircle, Eye, EyeOff, Globe, Moon, Sun } from 'lucide-react'
 
 export default function LoginPage() {
@@ -10,21 +11,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const { login } = useAuth()
+  const { tenant, theme, toggleTheme, tenantPath } = useTenant()
   const navigate = useNavigate()
 
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('gimpa_theme')
-      if (saved === 'dark' || saved === 'light') return saved
-    }
-    return 'light'
-  })
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    localStorage.setItem('gimpa_theme', theme)
-  }, [theme])
+  const brandShort = tenant?.short_name || 'GIMPA'
+  const brandFull = tenant?.name || 'Ghana Institute of Management and Public Administration'
+  const firstDomain = (tenant?.allowed_email_domains || 'gimpa.edu.gh').split(',')[0].trim()
 
   const handleLogin = async () => {
     setError('')
@@ -48,13 +40,13 @@ export default function LoginPage() {
       return
     }
 
-    navigate('/')
+    navigate(tenantPath('/'))
   }
 
   const handleGuestAccess = async () => {
     const result = await login('guest@murrs.edu', 'guest', 'guest')
     if (result.ok) {
-      navigate('/')
+      navigate(tenantPath('/'))
     }
   }
 
@@ -63,129 +55,108 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen w-full flex flex-col lg:flex-row bg-white text-[#1a1d1a] font-sans relative">
+    <div
+      className="min-h-screen w-full flex flex-col lg:flex-row font-sans relative"
+      style={{ background: 'var(--bg-main)', color: 'var(--text-main)' }}
+    >
       {/* Top-right Theme Toggle */}
       <button
         type="button"
-        onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}
-        className="fixed top-5 right-6 z-50 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-[#eaece4] bg-[#dce7d0] text-[#1a1d1a] cursor-pointer shadow-sm"
+        onClick={toggleTheme}
+        className="fixed top-5 right-6 z-50 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer shadow-sm"
+        style={{
+          border: '1px solid var(--border-color)',
+          background: 'var(--fp-sage)',
+          color: 'var(--fp-sage-text)',
+        }}
         title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       >
         {theme === 'dark' ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
         <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
       </button>
 
-      {/* ── LEFT SAGE PANEL (FinPlanner Image 5) ── */}
-      <div className="w-full lg:w-[44%] bg-[#d8e5c7] flex flex-col justify-between p-8 lg:p-12 relative overflow-hidden min-h-[280px] lg:min-h-screen">
+      {/* ── LEFT BRANDED INSTITUTION PANEL ── */}
+      <div
+        className="w-full lg:w-[44%] flex flex-col justify-between p-8 lg:p-12 relative overflow-hidden min-h-[260px] lg:min-h-screen"
+        style={{ background: 'var(--bg-header)', color: 'var(--header-text, var(--text-main))' }}
+      >
         {/* Top-left Brand */}
         <div className="flex items-center gap-3 z-10">
-          <div className="relative flex items-center justify-center w-9 h-9 rounded-full border-2 border-[#1a1d1a] text-[#1a1d1a]">
-            <Globe className="h-5 w-5 stroke-[2]" />
-          </div>
-          <span className="text-[19px] font-bold tracking-tight text-[#1a1d1a]">
-            GIMPA Repository
+          {tenant?.logo_url ? (
+            <img
+              src={tenant.logo_url}
+              alt={brandShort}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                objectFit: 'contain',
+                background: '#ffffff',
+                padding: 4,
+              }}
+            />
+          ) : (
+            <div
+              className="relative flex items-center justify-center w-9 h-9 rounded-full border-2"
+              style={{ borderColor: 'currentColor' }}
+            >
+              <Globe className="h-5 w-5 stroke-[2]" />
+            </div>
+          )}
+          <span className="text-[19px] font-bold tracking-tight">
+            {brandShort} Repository
           </span>
         </div>
 
-        {/* Center Illustration matching FinPlanner Image 5 */}
-        <div className="flex-1 flex items-center justify-center py-6 lg:py-0">
+        {/* Center Brand Identity & Illustration */}
+        <div className="flex-1 flex flex-col items-center justify-center py-6 lg:py-0 text-center max-w-sm mx-auto">
           <svg
-            viewBox="0 0 420 420"
-            className="w-full max-w-[340px] lg:max-w-[380px] h-auto select-none"
+            viewBox="0 0 420 320"
+            className="w-full max-w-[300px] h-auto select-none mb-4"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            <circle cx="235" cy="205" r="142" fill="#f4f6f0" />
-            <line x1="150" y1="128" x2="352" y2="128" stroke="#dcdfd6" strokeWidth="1.5" />
-
-            <clipPath id="fpCircleClip">
-              <circle cx="235" cy="205" r="142" />
-            </clipPath>
-            <g clipPath="url(#fpCircleClip)">
-              <path
-                d="M168 285 C172 245, 185 225, 200 223 C220 220, 238 198, 258 200 C278 202, 295 222, 315 218 C335 214, 355 185, 380 182 L380 285 Z"
-                fill="#5a6552"
-              />
-              <line x1="258" y1="200" x2="375" y2="200" stroke="#282838" strokeWidth="1.2" strokeDasharray="4 4" />
-              <line x1="200" y1="223" x2="375" y2="223" stroke="#282838" strokeWidth="1.2" strokeDasharray="4 4" />
-
-              <line x1="200" y1="223" x2="200" y2="285" stroke="#282838" strokeWidth="1.5" />
-              <line x1="258" y1="200" x2="258" y2="285" stroke="#282838" strokeWidth="1.5" />
-              <line x1="315" y1="218" x2="315" y2="285" stroke="#282838" strokeWidth="1.5" />
-
-              <line x1="158" y1="285" x2="380" y2="285" stroke="#282838" strokeWidth="1.8" />
-
-              <circle cx="200" cy="223" r="6" fill="#282838" />
-              <circle cx="258" cy="200" r="6" fill="#282838" />
-              <circle cx="315" cy="218" r="6" fill="#282838" />
-            </g>
-
+            <circle cx="210" cy="160" r="126" fill="rgba(255,255,255,0.45)" />
             <path
-              d="M98 378 C84 360, 78 338, 75 325 C90 330, 104 348, 102 378 Z"
-              fill="#f4f6f0"
+              d="M115 232 C135 190, 165 170, 195 168 C220 166, 240 140, 265 142 C288 144, 305 162, 325 154 L325 232 Z"
+              fill="var(--fp-olive)"
             />
-            <path
-              d="M95 378 C90 362, 84 345, 78 330"
-              stroke="#d8e5c7"
-              strokeWidth="1.5"
-            />
-
-            <line x1="65" y1="378" x2="195" y2="378" stroke="#c5d4b2" strokeWidth="1.8" />
-
-            <path d="M114 371 L126 371 L130 378 L112 378 Z" fill="#282838" />
-            <path d="M138 371 L150 371 L155 378 L136 378 Z" fill="#282838" />
-
-            <rect x="116" y="364" width="6" height="8" fill="#f2d6ce" />
-            <rect x="140" y="364" width="6" height="8" fill="#f2d6ce" />
-
-            <path
-              d="M104 282 L144 282 L148 365 L137 365 L128 310 L124 365 L113 365 Z"
-              fill="#282838"
-            />
-
-            <path
-              d="M136 238 L188 222 L191 230 L142 252 Z"
-              fill="#dce7d0"
-            />
-            <circle cx="192" cy="224" r="5" fill="#f2d6ce" />
-
-            <path
-              d="M100 232 C100 226, 108 222, 122 222 C136 222, 144 226, 146 236 L144 284 L103 284 Z"
-              fill="#dce7d0"
-            />
-
-            <rect x="117" y="212" width="10" height="12" rx="4" fill="#f2d6ce" />
-            <circle cx="123" cy="203" r="12" fill="#f2d6ce" />
-            <path
-              d="M110 204 C109 192, 118 186, 128 189 C134 191, 136 196, 134 200 C128 197, 122 198, 118 203 C116 206, 113 208, 110 204 Z"
-              fill="#282838"
-            />
-
-            <path
-              d="M100 234 L94 268 L116 274 L118 265 L106 260 L110 238 Z"
-              fill="#dce7d0"
-            />
-
-            <rect x="114" y="256" width="26" height="34" rx="3" fill="#ffffff" stroke="#dcdfd6" strokeWidth="1.2" />
-            <line x1="119" y1="264" x2="134" y2="264" stroke="#b8c0b4" strokeWidth="2" strokeLinecap="round" />
-            <line x1="119" y1="270" x2="135" y2="270" stroke="#b8c0b4" strokeWidth="2" strokeLinecap="round" />
-            <line x1="119" y1="276" x2="132" y2="276" stroke="#b8c0b4" strokeWidth="2" strokeLinecap="round" />
-            <line x1="119" y1="282" x2="128" y2="282" stroke="#b8c0b4" strokeWidth="2" strokeLinecap="round" />
-            <circle cx="115" cy="272" r="4.5" fill="#f2d6ce" />
+            <line x1="110" y1="232" x2="328" y2="232" stroke="currentColor" strokeWidth="2" opacity="0.6" />
+            <circle cx="195" cy="168" r="6" fill="currentColor" />
+            <circle cx="265" cy="142" r="6" fill="currentColor" />
           </svg>
+          <h2 className="text-[22px] font-bold tracking-tight mb-2">{brandFull}</h2>
+          <p className="text-[13px] opacity-80 leading-relaxed">
+            Dedicated institutional thesis submission, academic supervision, examination, and digital research repository.
+          </p>
         </div>
 
-        <div className="text-[12px] text-[#5a6552] font-medium hidden lg:block">
-          Ghana Institute of Management and Public Administration · Digital Thesis Archive
+        <div className="text-[12px] opacity-80 font-medium hidden lg:flex items-center justify-between">
+          <span>{brandFull} · Digital Thesis Archive</span>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            style={{ background: 'none', border: 'none', color: 'inherit', textDecoration: 'underline', fontSize: 12, cursor: 'pointer' }}
+          >
+            All Schools
+          </button>
         </div>
       </div>
 
-      {/* ── RIGHT WHITE LOGIN PANEL (FinPlanner Image 5) ── */}
-      <div className="flex-1 bg-white flex items-center justify-center px-6 py-12 lg:px-16">
+      {/* ── RIGHT LOGIN PANEL ── */}
+      <div
+        className="flex-1 flex items-center justify-center px-6 py-12 lg:px-16"
+        style={{ background: 'var(--bg-main)' }}
+      >
         <div className="w-full max-w-[380px]">
-          <h1 className="text-[36px] font-bold text-[#1a1d1a] text-center tracking-tight mb-10">
-            Log in
-          </h1>
+          <div className="text-center mb-8">
+            <span className="fp-tag-sage" style={{ display: 'inline-block', marginBottom: 10 }}>
+              {brandShort} Workspace
+            </span>
+            <h1 className="text-[34px] font-bold tracking-tight m-0" style={{ color: 'var(--text-main)' }}>
+              Log in
+            </h1>
+          </div>
 
           {error && (
             <div className="flex items-start gap-2.5 p-3.5 mb-6 rounded-xl bg-[#fdf2f0] border border-[#f5d0ca] text-[#c93b2b] text-[13px]">
@@ -198,25 +169,27 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="login-email"
-                className="block text-[13px] font-medium text-[#1a1d1a] mb-2"
+                className="block text-[13px] font-medium mb-2"
+                style={{ color: 'var(--text-main)' }}
               >
                 Email address
               </label>
               <input
                 id="login-email"
                 type="email"
-                placeholder="name@gimpa.edu.gh"
+                placeholder={`name@${firstDomain || 'university.edu'}`}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full h-12 px-4 rounded-lg border border-[#e2e5dc] bg-white text-[14px] text-[#1a1d1a] placeholder:text-[#8c9489] focus:outline-none focus:border-[#5a6552] focus:ring-2 focus:ring-[#5a6552]/15 transition-all"
+                className="w-full h-12 px-4 rounded-lg text-[14px]"
               />
             </div>
 
             <div>
               <label
                 htmlFor="login-password"
-                className="block text-[13px] font-medium text-[#1a1d1a] mb-2"
+                className="block text-[13px] font-medium mb-2"
+                style={{ color: 'var(--text-main)' }}
               >
                 Password
               </label>
@@ -228,13 +201,14 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  className="w-full h-12 pl-4 pr-11 rounded-lg border border-[#e2e5dc] bg-white text-[14px] text-[#1a1d1a] placeholder:text-[#8c9489] focus:outline-none focus:border-[#5a6552] focus:ring-2 focus:ring-[#5a6552]/15 transition-all"
+                  className="w-full h-12 pl-4 pr-11 rounded-lg text-[14px]"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#8c9489] hover:text-[#1a1d1a] transition-colors"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2"
+                  style={{ color: 'var(--text-muted)', background: 'none', border: 'none' }}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -246,27 +220,39 @@ export default function LoginPage() {
                 type="button"
                 onClick={handleLogin}
                 disabled={loading}
-                className="w-full h-12 rounded-lg bg-[#dce7d0] hover:bg-[#ceddc0] text-[#1a1d1a] font-bold text-[14px] transition-colors cursor-pointer disabled:opacity-60"
+                className="w-full h-12 rounded-lg font-bold text-[14px] transition-colors cursor-pointer disabled:opacity-60"
+                style={{
+                  background: 'var(--fp-olive)',
+                  color: 'var(--fp-olive-text, #ffffff)',
+                  border: 'none',
+                }}
               >
-                {loading ? 'Logging in...' : 'Log in'}
+                {loading ? 'Logging in...' : `Log in to ${brandShort}`}
               </button>
             </div>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-[#eaece4] flex flex-col gap-3 text-center">
+          <div className="mt-8 pt-6 flex flex-col gap-3 text-center" style={{ borderTop: '1px solid var(--border-color)' }}>
             <button
               type="button"
               onClick={handleGuestAccess}
-              className="w-full h-10 rounded-lg border border-[#e2e5dc] bg-[#fafbf8] hover:bg-[#f0f4ea] text-[#1a1d1a] text-[13px] font-medium transition-colors cursor-pointer"
+              className="w-full h-10 rounded-lg text-[13px] font-medium btn-fp-outline"
             >
               Continue as Guest
             </button>
             <button
               type="button"
-              onClick={() => navigate('/signup')}
-              className="text-[12px] text-[#6e766b] hover:text-[#1a1d1a] transition-colors cursor-pointer"
+              onClick={() => navigate(tenantPath('/signup'))}
+              style={{ fontSize: 12.5, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
             >
-              GIMPA Academic Staff? Request an account →
+              {brandShort} Academic Staff? Request an account →
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              style={{ fontSize: 12, color: 'var(--fp-olive)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+            >
+              ← Switch Institution or Register New School
             </button>
           </div>
         </div>

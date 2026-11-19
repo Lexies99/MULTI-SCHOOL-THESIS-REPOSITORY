@@ -62,9 +62,30 @@ from app.services.user_service import (
 router = APIRouter()
 
 
+from app.core.tenant import tenant_bypass
+from app.services.institution_service import (
+    build_workspace_url,
+    is_email_allowed_for_institution,
+    record_tenant_audit,
+)
+
+
+def _get_user_institution(db: Session, user: User) -> Institution | None:
+    if not getattr(user, "institution_id", None):
+        return None
+    with tenant_bypass():
+        return db.query(Institution).filter(Institution.id == user.institution_id).first()
+
+
 def _to_user_read(db: Session, user) -> UserRead:
     result = UserRead.model_validate(user)
     result.roles = get_user_roles(db, user.id)
+    result.is_platform_admin = bool(getattr(user, "is_platform_admin", False))
+    result.institution_id = getattr(user, "institution_id", None)
+    inst = _get_user_institution(db, user)
+    if inst:
+        result.institution_slug = inst.slug
+        result.institution_name = inst.name
     return result
 
 
@@ -201,18 +222,23 @@ def update_user_endpoint(
     if payload.email:
         user_roles = get_user_roles(db, user_id)
         is_external = "external_examiner" in user_roles or user.role == "external_examiner"
-        if not is_external and not is_allowed_institution_email(payload.email):
+        actor_inst = _get_user_institution(db, current_user) or _get_user_institution(db, user)
+        if not is_external and not is_email_allowed_for_institution(payload.email, actor_inst):
+            allowed_label = (actor_inst.allowed_email_domains if actor_inst else None) or "institutional email domains"
+            inst_label = (actor_inst.short_name or actor_inst.name) if actor_inst else "institution"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only GIMPA email addresses are allowed (@gimpa.edu.gh and subdomains)",
+                detail=f"Only {inst_label} email addresses are allowed ({allowed_label})",
             )
-        existing = get_user_by_email(db, payload.email)
-        if existing and existing.id != user_id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        with tenant_bypass():
+            existing = get_user_by_email(db, payload.email)
+            if existing and existing.id != user_id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
     if payload.school_id:
-        existing_school_id = get_user_by_school_id(db, payload.school_id)
-        if existing_school_id and existing_school_id.id != user_id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="School ID already registered")
+        with tenant_bypass():
+            existing_school_id = get_user_by_school_id(db, payload.school_id)
+            if existing_school_id and existing_school_id.id != user_id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="School ID already registered")
 
     if (
         payload.is_admin is not None
@@ -251,6 +277,17 @@ def delete_user_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     delete_user(db, user)
+    with tenant_bypass():
+        record_tenant_audit(
+            db,
+            institution_id=current_user.institution_id,
+            actor=current_user,
+            action="user_deleted",
+            target_type="user",
+            target_id=user_id,
+            details={"email": user.email},
+        )
+        db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -327,15 +364,19 @@ def admin_create_user(
     db: Session = Depends(get_db),
     current_admin=Depends(get_current_admin),
 ) -> AdminUserCreateResult:
-    if not is_allowed_institution_email(payload.email):
+    admin_inst = _get_user_institution(db, current_admin)
+    if not is_email_allowed_for_institution(payload.email, admin_inst):
+        allowed_label = (admin_inst.allowed_email_domains if admin_inst else None) or "institutional email domains"
+        inst_label = (admin_inst.short_name or admin_inst.name) if admin_inst else "institution"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only GIMPA email addresses are allowed (@gimpa.edu.gh and subdomains)",
+            detail=f"Only {inst_label} email addresses are allowed ({allowed_label})",
         )
-    if get_user_by_email(db, payload.email):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
-    if payload.school_id and get_user_by_school_id(db, payload.school_id):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="School ID already registered")
+    with tenant_bypass():
+        if get_user_by_email(db, payload.email):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        if payload.school_id and get_user_by_school_id(db, payload.school_id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="School ID already registered")
 
     temporary_password = generate_default_password()
     try:
@@ -349,6 +390,7 @@ def admin_create_user(
             full_name=payload.full_name,
             department=payload.department,
             must_change_password=True,
+            institution_id=current_admin.institution_id,
         )
         created.is_active = True
         if getattr(payload, "specialization", None):
@@ -363,12 +405,14 @@ def admin_create_user(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    inst_name = admin_inst.name if admin_inst else "Thesis Repository"
+    login_url = f"{build_workspace_url(admin_inst.slug)}/login" if (admin_inst and admin_inst.slug) else None
     email_sent = send_notification_email(
         to_email=created.email,
         to_name=created.full_name,
-        subject="Welcome to GIMPA Thesis Management System - Account Created",
+        subject=f"Welcome to {inst_name} Thesis Repository - Account Created",
         message=(
-            "Your account has been created successfully in GIMPA Thesis Management System by an administrator.\n\n"
+            f"Your account has been created successfully in {inst_name} Thesis Repository by an administrator.\n\n"
             "Account details:\n"
             f"- Email: {created.email}\n"
             f"- Temporary Password: {temporary_password}\n\n"
@@ -377,6 +421,8 @@ def admin_create_user(
             "2. Change your temporary password immediately.\n"
             "3. Verify your profile and role information."
         ),
+        institution_name=inst_name,
+        portal_url=login_url,
     )
     if not email_sent:
         create_notification(
@@ -407,11 +453,12 @@ def create_external_examiner_account(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only HOD, Project Coordinator, or Admin can create external examiner accounts")
 
     # 2. For external examiners, we DO NOT enforce GIMPA institutional email check (is_allowed_institution_email).
-    # 3. Check duplicate emails or school_id
-    if get_user_by_email(db, payload.email):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
-    if payload.school_id and get_user_by_school_id(db, payload.school_id):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="School ID already registered")
+    # 3. Check duplicate emails or school_id globally
+    with tenant_bypass():
+        if get_user_by_email(db, payload.email):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        if payload.school_id and get_user_by_school_id(db, payload.school_id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="School ID already registered")
 
     # 4. Generate temp password
     temporary_password = generate_default_password()
@@ -426,6 +473,7 @@ def create_external_examiner_account(
             full_name=payload.full_name,
             department=payload.department or current_user.department or "External Department",
             must_change_password=True,
+            institution_id=current_user.institution_id,
         )
         created.is_active = True
         db.add(created)
@@ -532,11 +580,12 @@ async def import_accounts_endpoint(
     if not students_file and not lecturers_file and not library_file:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload at least one file")
 
+    admin_inst = _get_user_institution(db, current_admin)
     pending_emails: list[dict[str, str]] = []
     try:
         if students_file:
             student_rows = load_rows_from_upload(students_file.filename or "", await students_file.read())
-            summary.students = import_students(db, student_rows, pending_emails=pending_emails)
+            summary.students = import_students(db, student_rows, pending_emails=pending_emails, institution=admin_inst)
 
         if lecturers_file:
             lecturer_rows = load_rows_from_upload(lecturers_file.filename or "", await lecturers_file.read())
@@ -545,6 +594,7 @@ async def import_accounts_endpoint(
                 lecturer_rows,
                 default_role="lecturer",
                 pending_emails=pending_emails,
+                institution=admin_inst,
             )
 
         if library_file:
@@ -554,6 +604,7 @@ async def import_accounts_endpoint(
                 library_rows,
                 default_role="librarian",
                 pending_emails=pending_emails,
+                institution=admin_inst,
             )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

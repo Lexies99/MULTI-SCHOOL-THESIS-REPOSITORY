@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { useAuth } from '../context/AuthContext'
+import { useTenant } from '../context/TenantContext'
 import { AlertCircle, Globe, UserPlus } from 'lucide-react'
-import type { ApiUserRole } from '../lib/api'
+import { apiListDepartments, type ApiDepartment, type ApiUserRole } from '../lib/api'
 
 const SCHOOL_OPTIONS = [
   'Business School',
@@ -79,12 +80,32 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [tenantDepartments, setTenantDepartments] = useState<ApiDepartment[]>([])
   const { createAccount } = useAuth()
+  const { tenant, tenantPath } = useTenant()
   const navigate = useNavigate()
-  const academicAreaOptions = useMemo(
-    () => ACADEMIC_AREA_OPTIONS_BY_SCHOOL[school] || [],
-    [school],
+
+  useEffect(() => {
+    void apiListDepartments().then(setTenantDepartments).catch(() => setTenantDepartments([]))
+  }, [tenant?.slug])
+
+  const brandShort = tenant?.short_name || 'GIMPA'
+  const brandFull = tenant?.name || 'Ghana Institute of Management and Public Administration'
+  const allowedDomains = useMemo(
+    () =>
+      (tenant?.allowed_email_domains || '')
+        .split(',')
+        .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
+        .filter(Boolean),
+    [tenant?.allowed_email_domains],
   )
+  const academicAreaOptions = useMemo(() => {
+    const matched = tenantDepartments
+      .filter((d) => !school || (d.institution_name || '').toLowerCase() === school.toLowerCase())
+      .map((d) => d.name)
+    if (matched.length > 0) return matched
+    return ACADEMIC_AREA_OPTIONS_BY_SCHOOL[school] || []
+  }, [school, tenantDepartments])
 
   const getInputValue = (id: string): string => {
     const el = document.getElementById(id) as HTMLInputElement | null
@@ -125,9 +146,12 @@ export default function SignupPage() {
     }
     const emailValue = finalSchoolEmail.toLowerCase().trim()
     const domain = emailValue.includes('@') ? emailValue.split('@')[1] : ''
-    const isValidGimpaEmail = !!domain && (domain === 'gimpa.edu.gh' || domain.endsWith('.gimpa.edu.gh'))
-    if (!isValidGimpaEmail) {
-      setError('School email must be a GIMPA email (@gimpa.edu.gh or subdomains)')
+    const isValidInstitutionalEmail =
+      allowedDomains.length === 0
+        ? Boolean(domain)
+        : Boolean(domain) && allowedDomains.some((base) => domain === base || domain.endsWith(`.${base}`))
+    if (!isValidInstitutionalEmail) {
+      setError(`School email must belong to ${brandShort} (${allowedDomains.join(', ')})`)
       return
     }
     if (finalPassword.length < 5) {
@@ -164,28 +188,35 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-screen w-full flex flex-col lg:flex-row bg-white text-[#1a1d1a] font-sans">
-      {/* Left Sage Panel */}
-      <div className="w-full lg:w-[42%] bg-[#d8e5c7] flex flex-col justify-between p-8 lg:p-12">
+      {/* Left Branded Panel */}
+      <div
+        className="w-full lg:w-[42%] flex flex-col justify-between p-8 lg:p-12"
+        style={{ background: 'var(--bg-header)', color: 'var(--header-text, var(--text-main))' }}
+      >
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-9 h-9 rounded-full border-2 border-[#1a1d1a] text-[#1a1d1a]">
-            <Globe className="h-5 w-5 stroke-[2]" />
-          </div>
-          <span className="text-[19px] font-bold tracking-tight text-[#1a1d1a]">
-            GIMPA Repository
+          {tenant?.logo_url ? (
+            <img src={tenant.logo_url} alt={brandShort} style={{ width: 38, height: 38, borderRadius: 8, objectFit: 'contain', background: '#fff', padding: 3 }} />
+          ) : (
+            <div className="flex items-center justify-center w-9 h-9 rounded-full border-2" style={{ borderColor: 'currentColor' }}>
+              <Globe className="h-5 w-5 stroke-[2]" />
+            </div>
+          )}
+          <span className="text-[19px] font-bold tracking-tight">
+            {brandShort} Repository
           </span>
         </div>
 
         <div className="my-auto py-8 max-w-sm">
-          <h2 className="text-[28px] font-bold text-[#1a1d1a] leading-tight mb-4">
+          <h2 className="text-[28px] font-bold leading-tight mb-4">
             Staff & Faculty Registration
           </h2>
-          <p className="text-[14px] text-[#4a5446] leading-relaxed">
-            Register with your official GIMPA institutional email address. Once submitted, a repository administrator or librarian will verify and activate your account.
+          <p className="text-[14px] opacity-85 leading-relaxed">
+            Register with your official {brandShort} institutional email address. Once submitted, an institution administrator or librarian will verify and activate your account.
           </p>
         </div>
 
-        <div className="text-[12px] text-[#5a6552] font-medium hidden lg:block">
-          Ghana Institute of Management and Public Administration
+        <div className="text-[12px] opacity-80 font-medium hidden lg:block">
+          {brandFull}
         </div>
       </div>
 

@@ -210,6 +210,7 @@ def _upsert_student(
     db: Session,
     row: dict[str, str],
     pending_emails: list[dict[str, str]] | None = None,
+    institution=None,
 ) -> tuple[bool, str, bool, bool]:
     student_id = _map_value(row, ["student id", "student_id", "id"])
     email = _map_value(row, ["school email", "email", "student email"])
@@ -217,7 +218,7 @@ def _upsert_student(
         return False, "missing student id", False, False
     if not email:
         return False, f"{student_id}: missing school email", False, False
-    if not is_allowed_institution_email(email):
+    if not is_allowed_institution_email(email, institution=institution):
         return False, f"{student_id}: invalid institution email", False, False
 
     certification_type = _map_value(
@@ -350,13 +351,14 @@ def _upsert_staff_user(
     row: dict[str, str],
     default_role: str,
     pending_emails: list[dict[str, str]] | None = None,
+    institution=None,
 ) -> tuple[bool, str, bool, bool]:
     name = _map_value(row, ["lecturer name", "name", "full name"])
     school_id = _map_value(row, ["lecturer id", "lecture id", "staff id", "school id", "id"])
     email = _map_value(row, ["lecturer email", "lecture email", "school email", "email"])
     if not email:
         return False, "missing email", False, False
-    if not is_allowed_institution_email(email):
+    if not is_allowed_institution_email(email, institution=institution):
         return False, f"{email}: invalid institution email", False, False
 
     role_value = _map_value(row, ["role", "roles"]) or default_role
@@ -444,13 +446,16 @@ def import_students(
     db: Session,
     rows: list[dict[str, str]],
     pending_emails: list[dict[str, str]] | None = None,
+    institution=None,
 ) -> StudentImportSummary:
     ok = 0
     emailed_sent = 0
     emailed_failed = 0
     errors: list[str] = []
     for row in rows:
-        success, info, mail_sent, mail_failed = _upsert_student(db, row, pending_emails=pending_emails)
+        success, info, mail_sent, mail_failed = _upsert_student(
+            db, row, pending_emails=pending_emails, institution=institution
+        )
         if success:
             ok += 1
             if mail_sent:
@@ -475,6 +480,7 @@ def import_staff_accounts(
     *,
     default_role: str,
     pending_emails: list[dict[str, str]] | None = None,
+    institution=None,
 ) -> StudentImportSummary:
     ok = 0
     emailed_sent = 0
@@ -482,7 +488,7 @@ def import_staff_accounts(
     errors: list[str] = []
     for row in rows:
         success, info, mail_sent, mail_failed = _upsert_staff_user(
-            db, row, default_role=default_role, pending_emails=pending_emails
+            db, row, default_role=default_role, pending_emails=pending_emails, institution=institution
         )
         if success:
             ok += 1

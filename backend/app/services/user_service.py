@@ -91,14 +91,22 @@ def get_user_by_school_id(db: Session, school_id: str) -> User | None:
     return db.query(User).filter(User.school_id == normalized).first()
 
 
-def is_allowed_institution_email(email: str) -> bool:
+def is_allowed_institution_email(email: str, institution=None) -> bool:
     normalized = (email or "").strip().lower()
     if "@" not in normalized:
         return False
     _, domain = normalized.rsplit("@", 1)
     if not domain:
         return False
-    allowed = [item.strip().lower() for item in settings.allowed_email_domains.split(",") if item.strip()]
+    if institution is not None:
+        raw_domains = getattr(institution, "allowed_email_domains", None) or ""
+        allowed = [item.strip().lower().lstrip("@") for item in raw_domains.split(",") if item.strip()]
+        if not allowed:
+            return True
+        return any(domain == base or domain.endswith(f".{base}") for base in allowed)
+    allowed = [item.strip().lower().lstrip("@") for item in settings.allowed_email_domains.split(",") if item.strip()]
+    if not allowed:
+        return True
     return any(domain == base or domain.endswith(f".{base}") for base in allowed)
 
 
@@ -242,13 +250,18 @@ def create_user(
     full_name: str | None,
     department: str | None = None,
     must_change_password: bool = False,
+    institution_id: int | None = None,
 ) -> User:
+    from app.core.tenant import get_effective_tenant_id
+
     normalized_email = email.strip().lower()
     normalized_role = normalize_role(role)
     if normalized_role not in VALID_USER_ROLES:
         raise ValueError(f"Unsupported role: {role}")
     _validate_role_identity_fields(role=normalized_role, school_id=school_id, is_create=True)
+    effective_institution_id = institution_id if institution_id is not None else get_effective_tenant_id(db)
     user = User(
+        institution_id=effective_institution_id,
         email=normalized_email,
         school_id=(school_id or "").strip() or None,
         school=(school or "").strip() or None,

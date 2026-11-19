@@ -1,74 +1,55 @@
-# GIMPA Thesis Repository
+# Multi-School Thesis Repository Cloud Platform
 
-## Backend (FastAPI + Postgres)
+A multi-tenant Software-as-a-Service (SaaS) academic thesis repository platform evolved from the GIMPA Thesis Repository. One centrally hosted FastAPI + React cloud application serves multiple universities and colleges—giving each approved institution its own unique web address (`/<slug>` or custom domain/subdomain), custom logo and accessible colour branding, and strictly isolated users, departments, theses, files, PhD Hub records, and administration.
 
-This backend uses FastAPI, SQLAlchemy, and JWT auth.
+## Key Capabilities
 
-### Quick start
+- **Institution Onboarding & Approval Workflow (`/onboard`, `/platform`)**:
+  - Public onboarding wizard with live slug availability checking, contact & initial administrator capture, logo upload (PNG/JPEG/WEBP/SVG <= 2 MB), colour pickers + preset palettes, WCAG 2.1 contrast auditing, live workspace preview, and reset-to-default.
+  - Platform Operator Console (`/platform`) to review pending applications, approve & provision workspaces (initial `system_admin` account, temporary password, starter departments, welcome email), reject, suspend/reactivate, and inspect platform health & audit logs.
+- **Dedicated Institution Links & Dynamic Branding (`/<slug>`)**:
+  - Path-based tenant routing (`/<slug>`, `/<slug>/login`, `/<slug>/signup`, `/<slug>/submit-proposal`, `/<slug>/paper/:id`, `/<slug>/editor`) plus `Host`-based subdomain and custom domain resolution.
+  - Dynamic per-institution CSS variable theming (light & dark modes) loaded from each tenant's database settings—one institution's branding never affects another.
+  - In-workspace **Branding & Settings** tab for institution administrators to update logo, colours, academic year, email domains, departments, audit logs, and JSON data export.
+- **Strict Multi-Tenant Data & File Isolation**:
+  - `institution_id` foreign keys across all tenant-owned tables (`users`, `students`, `departments`, `schools`, `papers`, `theses`, `notifications`, and all 6 `phd_*` tables) backed by Alembic migration `9f8e7d6c5b4a`.
+  - Automatic SQLAlchemy 2.0 `do_orm_execute` + `before_flush` session-level tenant scoping (`app/db/tenant_scoping.py`) plus server-authoritative tenant checks rejecting spoofed headers (`X-Tenant-Slug`) or cross-tenant logins with `403 Forbidden`.
+  - Tenant-partitioned private file storage (`uploads/tenants/tenant_<id>/...` or private S3 object storage via `STORAGE_BACKEND=s3`) and tenant-bound HMAC tokens for OnlyOffice callbacks.
 
-1. Create a virtual environment and install deps:
+## Quick Start (Local Development)
+
+### 1. Backend (FastAPI + SQLAlchemy + Alembic)
 
 ```bash
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-2. Set environment variables (copy and edit):
-
-```bash
 copy .env.example .env
-```
-
-Optional SMTP variables for email notifications:
-
-- `SMTP_ENABLED=true`
-- `SMTP_HOST=smtp.example.com`
-- `SMTP_PORT=587`
-- `SMTP_USERNAME=your_username`
-- `SMTP_PASSWORD=your_password`
-- `SMTP_USE_TLS=true`
-- `SMTP_USE_SSL=false`
-- `SMTP_FROM_EMAIL=no-reply@example.com`
-- `SMTP_FROM_NAME=MURRS`
-- `SMTP_TIMEOUT_SECONDS=10`
-
-3. Create tables:
-
-```bash
-python -m app.db.init_db
-```
-
-4. Run the API:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-### Endpoints
-
-- `GET /api/health`
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/refresh`
-- `POST /api/auth/logout`
-- `GET /api/me` (auth required)
-- `GET /api/users` (auth required)
-- `GET /api/users/{user_id}` (auth required)
-- `PATCH /api/users/{user_id}` (auth required)
-- `DELETE /api/users/{user_id}` (auth required)
-- `PATCH /api/users/{user_id}/role` (admin required)
-
-### Alembic (migrations)
-
-Generate a new migration:
-
-```bash
-alembic revision --autogenerate -m "init"
-```
-
-Apply migrations:
-
-```bash
 alembic upgrade head
+python scripts/seed_multi_tenant_demo.py
+uvicorn app.main:app --reload --port 8011
+```
+
+### 2. Frontend (React Router v7 + Vite + Tailwind)
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Visit:
+- Central Multi-School Directory: `http://localhost:5173/`
+- GIMPA Pilot Workspace: `http://localhost:5173/gimpa`
+- Institution Onboarding & Branding Wizard: `http://localhost:5173/onboard`
+- Platform Operator Console: `http://localhost:5173/platform`
+
+## Cloud Deployment & Operations
+
+See [MULTI_TENANT_DEPLOYMENT_GUIDE.md](MULTI_TENANT_DEPLOYMENT_GUIDE.md) for Docker Compose cloud deployment (`docker-compose.cloud.yml`), HTTPS reverse proxy (`deploy/nginx/multi-tenant.conf`), private S3 storage, and automated backups (`scripts/backup_and_restore.py`).
+
+## Automated Cross-Tenant Security Tests
+
+```bash
+python -m unittest -v tests/test_multi_tenant_isolation.py
 ```

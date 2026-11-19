@@ -15,6 +15,10 @@ export type UserRole = 'guest' | ApiUserRole
 
 export interface User {
   id: number
+  institutionId?: number | null
+  institutionSlug?: string | null
+  institutionName?: string | null
+  isPlatformAdmin?: boolean
   email: string
   schoolId?: string
   school?: string
@@ -86,13 +90,17 @@ const buildUser = (apiUser: ApiUser, extras?: Partial<User>): User => {
   const effectiveRole = getEffectiveRole(mergedRoles, primaryRole)
   return {
     id: apiUser.id,
+    institutionId: apiUser.institution_id ?? extras?.institutionId ?? null,
+    institutionSlug: apiUser.institution_slug ?? extras?.institutionSlug ?? null,
+    institutionName: apiUser.institution_name ?? extras?.institutionName ?? null,
+    isPlatformAdmin: Boolean(apiUser.is_platform_admin ?? extras?.isPlatformAdmin),
     email: apiUser.email,
     schoolId: apiUser.school_id || extras?.schoolId,
     school: apiUser.school || extras?.school,
     name: apiUser.full_name || apiUser.email.split('@')[0],
     role: effectiveRole,
     roles: mergedRoles,
-    university: extras?.university,
+    university: apiUser.institution_name || extras?.university,
     department: apiUser.department || extras?.department,
     program: apiUser.program || extras?.program,
     mustChangePassword: typeof apiUser.must_change_password === 'boolean' ? apiUser.must_change_password : extras?.mustChangePassword,

@@ -93,8 +93,12 @@ class AdminUserCreate(UserBase):
 
 class UserRead(UserBase):
     id: int
+    institution_id: int | None = None
+    institution_slug: str | None = None
+    institution_name: str | None = None
     is_active: bool
     is_admin: bool
+    is_platform_admin: bool = False
     role: UserRole
     roles: list[UserRole] = Field(default_factory=list)
     must_change_password: bool = False

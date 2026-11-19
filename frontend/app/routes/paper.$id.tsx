@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { useAuth } from '../context/AuthContext'
+import { useTenant } from '../context/TenantContext'
 import { ArrowLeft, Download, Eye } from 'lucide-react'
 import { apiDownloadPaperFile, apiGetPaper, apiTrackPaperView } from '../lib/api'
 import type { ApiPaper } from '../lib/api'
@@ -10,9 +11,9 @@ import type { ApiPaper } from '../lib/api'
 export const meta = ({ params }: { params: { id?: string } }) => {
   const id = Number(params.id)
   const title = Number.isFinite(id)
-    ? `Paper ${id} - GIMPA Thesis Repository`
-    : 'Paper - GIMPA Thesis Repository'
-  const description = 'Research paper details on GIMPA Thesis Repository'
+    ? `Paper ${id} - Thesis Repository`
+    : 'Paper - Thesis Repository'
+  const description = 'Research paper details on Multi-School Thesis Repository'
   return [{ title }, { name: 'description', content: description }]
 }
 
@@ -20,6 +21,8 @@ export default function PaperDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user, isAuthenticated } = useAuth()
+  const { tenant, tenantPath } = useTenant()
+  const brandShort = tenant?.short_name || 'GIMPA'
 
   const paperId = Number(id)
   const [paper, setPaper] = useState<ApiPaper | null>(null)
@@ -104,20 +107,28 @@ export default function PaperDetail() {
 
   return (
     <div className="min-h-screen bg-[#ffffff] text-[#1a1d1a]">
-      {/* FinPlanner Top Full-Width Soft Sage Header Bar */}
-      <header className="h-[60px] w-full bg-[#d8e5c7] border-b border-[#c9d8b6] px-8 flex items-center justify-between">
+      {/* Branded Top Header Bar */}
+      <header
+        className="h-[60px] w-full px-8 flex items-center justify-between"
+        style={{ background: 'var(--bg-header)', borderBottom: '1px solid var(--border-header)', color: 'var(--header-text, var(--text-main))' }}
+      >
         <div className="flex items-center gap-3">
-          <div className="size-8 rounded-full bg-[#1a1d1a] text-[#d8e5c7] flex items-center justify-center font-bold text-xs">
-            G
-          </div>
-          <span className="font-bold text-[15px] tracking-tight text-[#1a1d1a]">
-            GIMPA Thesis Repository
+          {tenant?.logo_url ? (
+            <img src={tenant.logo_url} alt={brandShort} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'contain', background: '#fff', padding: 2 }} />
+          ) : (
+            <div className="size-8 rounded-full flex items-center justify-center font-bold text-xs" style={{ background: 'var(--fp-olive)', color: 'var(--fp-olive-text, #fff)' }}>
+              {brandShort.slice(0, 2).toUpperCase()}
+            </div>
+          )}
+          <span className="font-bold text-[15px] tracking-tight">
+            {brandShort} Thesis Repository
           </span>
         </div>
         <button
           type="button"
-          onClick={() => navigate('/')}
-          className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#1a1d1a] hover:opacity-75 transition-opacity cursor-pointer"
+          onClick={() => navigate(tenantPath('/'))}
+          className="inline-flex items-center gap-2 text-[13px] font-semibold hover:opacity-75 transition-opacity cursor-pointer"
+          style={{ background: 'none', border: 'none', color: 'inherit' }}
         >
           <ArrowLeft className="size-4" />
           Back to Catalog

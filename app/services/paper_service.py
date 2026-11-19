@@ -163,10 +163,14 @@ def create_paper(
     payload: PaperCreate,
     created_by_id: int | None,
     created_by_is_admin: bool = False,
+    institution_id: int | None = None,
 ) -> Paper:
+    from app.core.tenant import get_effective_tenant_id
+
     now = datetime.now(timezone.utc)
     initial_status = "approved" if created_by_is_admin else "phase1_proposal_submitted"
     supervisor_id = payload.supervisor_id if created_by_is_admin else None
+    effective_institution_id = institution_id if institution_id is not None else get_effective_tenant_id(db)
 
     paper = Paper(
         title=payload.title.strip(),
@@ -186,6 +190,7 @@ def create_paper(
         created_by_id=created_by_id,
         supervisor_id=supervisor_id,
         work_mode=payload.work_mode,
+        institution_id=effective_institution_id,
         department_id=payload.department_id,
     )
     db.add(paper)
@@ -211,6 +216,7 @@ def create_paper(
     if not existing_thesis and created_by_id:
         thesis = Thesis(
             id=paper.id,
+            institution_id=effective_institution_id,
             student_id=created_by_id,
             department_id=paper.department_id,
             topic_title=paper.title,

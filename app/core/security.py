@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import re
 from uuid import uuid4
 from typing import Any, Optional
 
@@ -11,6 +10,8 @@ from passlib.context import CryptContext
 from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
 def validate_password_requirements(password: str) -> None:
     value = password or ""
     if len(value) < 5:
@@ -22,22 +23,51 @@ def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
+# Backward-compatible alias used in auth.py
+get_password_hash = hash_password
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(subject: str, expires_minutes: Optional[int] = None) -> str:
+def create_access_token(
+    subject: str,
+    expires_minutes: Optional[int] = None,
+    *,
+    institution_id: int | None = None,
+    institution_slug: str | None = None,
+    is_platform_admin: bool = False,
+) -> str:
     expire_minutes = expires_minutes or settings.access_token_expire_minutes
     expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
-    to_encode: dict[str, Any] = {"sub": subject, "exp": expire, "type": "access"}
+    to_encode: dict[str, Any] = {
+        "sub": subject,
+        "exp": expire,
+        "type": "access",
+        "tid": institution_id,
+        "tslug": institution_slug,
+        "pa": bool(is_platform_admin),
+    }
     return jwt.encode(to_encode, settings.secret_key, algorithm="HS256")
 
 
-def create_refresh_token(subject: str, expires_days: Optional[int] = None) -> tuple[str, str, datetime]:
+def create_refresh_token(
+    subject: str,
+    expires_days: Optional[int] = None,
+    *,
+    institution_id: int | None = None,
+) -> tuple[str, str, datetime]:
     expire_days = expires_days or settings.refresh_token_expire_days
     expire = datetime.now(timezone.utc) + timedelta(days=expire_days)
     jti = uuid4().hex
-    to_encode: dict[str, Any] = {"sub": subject, "exp": expire, "type": "refresh", "jti": jti}
+    to_encode: dict[str, Any] = {
+        "sub": subject,
+        "exp": expire,
+        "type": "refresh",
+        "jti": jti,
+        "tid": institution_id,
+    }
     token = jwt.encode(to_encode, settings.secret_key, algorithm="HS256")
     return token, jti, expire
 

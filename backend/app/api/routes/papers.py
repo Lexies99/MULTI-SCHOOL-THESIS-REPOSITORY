@@ -18,8 +18,11 @@ from sqlalchemy import case, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_reviewer, get_current_user, get_db
+from app.api.deps import get_current_reviewer, get_current_user, get_current_user_optional, get_db, resolve_public_tenant
 from app.core.config import settings
+from app.core.tenant import current_tenant_id, get_effective_tenant_id, scoped_tenant, set_session_tenant
+from app.models.institution import Institution
+from app.services.storage_service import sanitize_filename, tenant_upload_dir
 from app.models.paper import Paper
 from app.models.paper_workflow import PaperVersion, PaperReviewLog, PaperWorkflowEvent
 from app.models.department import Department
@@ -48,9 +51,17 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 EDITOR_TOKEN_TTL_SECONDS = 60 * 60
 
 
-def _build_editor_token(*, paper_id: int, action: str, expires_in: int = EDITOR_TOKEN_TTL_SECONDS) -> str:
+def _build_editor_token(
+    *,
+    paper_id: int,
+    action: str,
+    institution_id: int | None = None,
+    expires_in: int = EDITOR_TOKEN_TTL_SECONDS,
+) -> str:
     exp = int(datetime.now(timezone.utc).timestamp()) + max(60, expires_in)
-    payload = f"{paper_id}:{action}:{exp}"
+    tid = institution_id if institution_id is not None else current_tenant_id.get()
+    tid_str = str(tid) if tid is not None else "0"
+    payload = f"{tid_str}:{paper_id}:{action}:{exp}"
     signature = hmac.new(
         settings.secret_key.encode("utf-8"),
         payload.encode("utf-8"),
@@ -59,27 +70,36 @@ def _build_editor_token(*, paper_id: int, action: str, expires_in: int = EDITOR_
     return f"{payload}:{signature}"
 
 
-def _verify_editor_token(*, token: str, paper_id: int, action: str) -> bool:
-    try:
-        token_paper_id, token_action, token_exp, token_sig = token.split(":", 3)
-    except ValueError:
-        return False
+def _verify_editor_token(*, token: str, paper_id: int, action: str) -> tuple[bool, int | None]:
+    parts = token.split(":")
+    if len(parts) == 5:
+        token_tid_str, token_paper_id, token_action, token_exp, token_sig = parts
+        raw_payload = f"{token_tid_str}:{token_paper_id}:{token_action}:{token_exp}"
+    elif len(parts) == 4:
+        token_tid_str = "0"
+        token_paper_id, token_action, token_exp, token_sig = parts
+        raw_payload = f"{token_paper_id}:{token_action}:{token_exp}"
+    else:
+        return False, None
+
     if token_paper_id != str(paper_id) or token_action != action:
-        return False
+        return False, None
     try:
         exp = int(token_exp)
+        token_tid = int(token_tid_str) if token_tid_str and token_tid_str != "0" else None
     except ValueError:
-        return False
+        return False, None
     now_ts = int(datetime.now(timezone.utc).timestamp())
     if exp < now_ts:
-        return False
-    raw_payload = f"{token_paper_id}:{token_action}:{token_exp}"
+        return False, None
     expected_sig = hmac.new(
         settings.secret_key.encode("utf-8"),
         raw_payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-    return hmac.compare_digest(token_sig, expected_sig)
+    if not hmac.compare_digest(token_sig, expected_sig):
+        return False, None
+    return True, token_tid
 
 
 def _sanitize_examiner_feedback_for_student(text: str | None) -> str | None:
@@ -713,6 +733,7 @@ def _record_workflow_event(
 @router.get("/papers", response_model=list[PaperRead])
 def read_papers(
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
     q: str | None = None,
     discipline: str | None = None,
     university: str | None = None,
@@ -739,12 +760,13 @@ def read_papers(
         limit=limit,
         catalog_mode=catalog,
     )
-    return [_to_paper_read(p, db=db) for p in papers]
+    return [_to_paper_read(p, db=db, current_user=current_user) for p in papers]
 
 
 @router.get("/papers/stats", response_model=PaperStats)
 def read_paper_stats(
     user_id: int | None = Query(None),
+    current_user: User | None = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ) -> PaperStats:
     return PaperStats(**get_paper_stats(db, user_id=user_id))
@@ -1463,23 +1485,12 @@ from app.core.security import decode_access_token
 def read_paper(
     paper_id: int,
     request: Request,
+    current_user: User | None = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ) -> PaperRead:
     paper = get_paper(db, paper_id)
     if not paper:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
-    
-    current_user = None
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-        try:
-            payload = decode_access_token(token, expected_type="access")
-            if payload and "sub" in payload:
-                current_user = get_user_by_email(db, payload["sub"])
-        except Exception:
-            pass
-            
     return _to_paper_read(paper, db, current_user)
 
 
@@ -1613,8 +1624,9 @@ async def upload_paper_endpoint(
         matched = match_supervisor_for_topic(db, title=title, abstract=abstract, department_id=department_id)
         if matched.get("best_match"):
             supervisor_id = matched["best_match"]["id"]
-    safe_name = f"{uuid4().hex}_{Path(file.filename or 'upload.bin').name}"
-    dest = UPLOADS_DIR / safe_name
+    safe_name = f"{uuid4().hex}_{sanitize_filename(file.filename, 'upload.bin')}"
+    tenant_papers_dir = tenant_upload_dir(current_user.institution_id, "papers")
+    dest = tenant_papers_dir / safe_name
 
     content = await file.read()
     if not content:
@@ -2064,11 +2076,15 @@ def review_paper_endpoint(
 
 
 @router.post("/papers/{paper_id}/view", response_model=PaperRead)
-def track_paper_view(paper_id: int, db: Session = Depends(get_db)) -> PaperRead:
+def track_paper_view(
+    paper_id: int,
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+) -> PaperRead:
     paper = get_paper(db, paper_id)
     if not paper:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
-    return _to_paper_read(increment_view(db, paper))
+    return _to_paper_read(increment_view(db, paper), db, current_user)
 
 
 @router.post("/papers/{paper_id}/download", response_model=PaperRead)
@@ -2584,12 +2600,17 @@ def download_paper_file_public(
     uid: int | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    if not _verify_editor_token(token=token, paper_id=paper_id, action="file"):
+    is_valid, token_tenant_id = _verify_editor_token(token=token, paper_id=paper_id, action="file")
+    if not is_valid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired file token")
+    if token_tenant_id is not None:
+        set_session_tenant(db, token_tenant_id, None, bypass=False)
 
     paper = get_paper(db, paper_id) if paper_id > 0 else None
     if not paper and doc_type not in {"batch_excel", "dept_excel", "dean_excel"}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
+    if paper and token_tenant_id is not None and paper.institution_id != token_tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-tenant document access denied")
 
     user = db.query(User).filter(User.id == uid).first() if uid else None
     assigned_papers = []
@@ -2913,10 +2934,15 @@ async def handle_editor_callback(
     payload: dict | None = None,
     db: Session = Depends(get_db),
 ):
-    if not _verify_editor_token(token=token, paper_id=paper_id, action="callback"):
+    is_valid, token_tenant_id = _verify_editor_token(token=token, paper_id=paper_id, action="callback")
+    if not is_valid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired callback token")
+    if token_tenant_id is not None:
+        set_session_tenant(db, token_tenant_id, None, bypass=False)
 
     paper = get_paper(db, paper_id) if paper_id > 0 else None
+    if paper and token_tenant_id is not None and paper.institution_id != token_tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-tenant editor callback denied")
     user = db.query(User).filter(User.id == uid).first() if uid else None
 
     target, _, _, _ = _get_target_doc_path(paper, doc_type, user=user)
@@ -3798,8 +3824,9 @@ async def upload_corrections(
     if paper.created_by_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the student author can upload final corrections")
     
-    safe_name = f"{uuid4().hex}_{Path(file.filename or 'upload.bin').name}"
-    dest = UPLOADS_DIR / safe_name
+    safe_name = f"{uuid4().hex}_{sanitize_filename(file.filename, 'upload.bin')}"
+    tenant_papers_dir = tenant_upload_dir(current_user.institution_id, "papers")
+    dest = tenant_papers_dir / safe_name
     content = await file.read()
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")

@@ -21,6 +21,7 @@ class PhDSupervisionLog(Base):
     __tablename__ = "phd_supervision_logs"
 
     id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     supervisor_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     meeting_date = Column(Date, nullable=False)
@@ -42,6 +43,7 @@ class PhDSeminar(Base):
     __tablename__ = "phd_seminars"
 
     id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     seminar_title = Column(String(255), nullable=False)
     seminar_category = Column(String(100), nullable=False)  # 7 standard categories
@@ -60,6 +62,7 @@ class PhDComprehensiveExam(Base):
     __tablename__ = "phd_comprehensive_exams"
 
     id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     coursework_completed = Column(Boolean, default=True, nullable=False)
     cgpa = Column(Float, nullable=True)
@@ -81,6 +84,7 @@ class PhDTeachingRequirement(Base):
     __tablename__ = "phd_teaching_requirements"
 
     id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     course_taught = Column(String(200), nullable=False)
     semester = Column(String(100), nullable=False)
@@ -103,6 +107,7 @@ class PhDProgressEvaluation(Base):
     __tablename__ = "phd_progress_evaluations"
 
     id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     evaluator_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     evaluation_period = Column(String(100), nullable=False)  # e.g., "2025/2026 Semester 1"
@@ -125,6 +130,7 @@ class PhDReaccreditationFolder(Base):
     __tablename__ = "phd_reaccreditation_folders"
 
     id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
     folder_number = Column(Integer, nullable=False, index=True)  # 1 to 18
     folder_name = Column(String(200), nullable=False)
     academic_year = Column(String(50), nullable=False, index=True)  # e.g., "2024/2025"

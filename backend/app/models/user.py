@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy.orm import relationship
 
 from app.models.base import Base
 
@@ -9,6 +10,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id", ondelete="CASCADE"), nullable=True, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     school_id = Column(String(64), unique=True, nullable=True, index=True)
     school = Column(String(255), nullable=True, index=True)
@@ -18,9 +20,12 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
+    is_platform_admin = Column(Boolean, nullable=False, default=False)
     role = Column(String(32), nullable=False, default="student")
     specialization = Column(String(500), nullable=True)
     research_interests = Column(String(1000), nullable=True)
     max_student_ceiling = Column(Integer, nullable=False, default=5)
     must_change_password = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    institution = relationship("Institution", foreign_keys=[institution_id])

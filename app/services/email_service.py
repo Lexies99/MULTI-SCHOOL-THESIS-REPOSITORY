@@ -18,6 +18,8 @@ def send_notification_email(
     subject: str,
     message: str,
     attachments: list[tuple[str, bytes, str]] | None = None,
+    institution_name: str | None = None,
+    portal_url: str | None = None,
 ) -> bool:
     if not settings.smtp_enabled:
         return False
@@ -26,13 +28,14 @@ def send_notification_email(
         logger.warning("SMTP is enabled but SMTP_HOST or SMTP_FROM_EMAIL is missing")
         return False
 
-    from_label = (settings.smtp_from_name or "GIMPA Thesis Management System").strip()
+    brand_name = (institution_name or settings.smtp_from_name or "Multi-School Thesis Repository").strip()
+    login_portal = (portal_url or f"{settings.public_frontend_url.rstrip('/')}/login").strip()
     email = EmailMessage()
-    email["From"] = f"{from_label} <{settings.smtp_from_email}>"
+    email["From"] = f"{brand_name} <{settings.smtp_from_email}>"
     email["To"] = to_email
     email["Subject"] = subject
     email["Date"] = formatdate(localtime=True)
-    domain = settings.smtp_from_email.partition("@")[2] or "thesis.manamatechnologies.com"
+    domain = settings.smtp_from_email.partition("@")[2] or "thesiscloud.org"
     email["Message-ID"] = make_msgid(domain=domain)
 
     greeting_name = (to_name or "").strip() or "User"
@@ -40,12 +43,11 @@ def send_notification_email(
         f"Dear {greeting_name},\n\n"
         f"{message}\n\n"
         "----------------------------------------------------------------------\n"
-        "Login Portal: https://thesis.manamatechnologies.com/login\n\n"
-        "This is an automated notification from the GIMPA Thesis Management System.\n"
-        "If you have any questions, please contact your department Project Coordinator, HOD, or System Administrator.\n\n"
+        f"Login Portal: {login_portal}\n\n"
+        f"This is an automated notification from {brand_name}.\n"
+        "If you have any questions, please contact your department Project Coordinator, HOD, or Institution Administrator.\n\n"
         "Best regards,\n"
-        "GIMPA Thesis Management System\n"
-        "Ghana Institute of Management and Public Administration (GIMPA)"
+        f"{brand_name}"
     )
 
     for item in attachments or []:

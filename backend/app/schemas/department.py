@@ -6,12 +6,21 @@ from typing import Optional
 
 class DepartmentBase(BaseModel):
     name: str
+    faculty_name: Optional[str] = None
+
+
+class DepartmentCreate(DepartmentBase):
+    name: str = Field(..., min_length=2, max_length=255)
+    faculty_name: Optional[str] = Field(default=None, max_length=255)
+    hod_user_id: Optional[int] = None
+    dean_user_id: Optional[int] = None
 
 
 class DepartmentRead(DepartmentBase):
     id: int
     institution_id: int
     institution_name: Optional[str] = None
+    faculty_name: Optional[str] = None
     hod_user_id: Optional[int] = None
     dean_user_id: Optional[int] = None
 

@@ -9,7 +9,9 @@ import { Dashboard } from '../components/library/Dashboard';
 import { AccountManagement } from '../components/library/AccountManagement';
 import { Profile } from '../components/library/Profile';
 import { PhdHub } from '../components/library/PhdHub';
+import { InstitutionSettings } from '../components/library/InstitutionSettings';
 import { useAuth } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
 import {
   Book,
   BookOpen,
@@ -29,19 +31,22 @@ import {
   HelpCircle,
   Sun,
   Moon,
+  Palette,
+  Shield,
 } from 'lucide-react';
 import { apiGetPendingPapers, apiGetNotifications, apiMarkNotificationRead, type ApiNotification } from '../lib/api';
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "GIMPA Thesis Repository" },
-    { name: "description", content: "GIMPA Thesis Repository Platform" },
+    { title: "Thesis Repository Workspace" },
+    { name: "description", content: "Multi-School Thesis Repository Cloud Workspace" },
   ];
 }
 
 export default function Home() {
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuth();
+  const { tenant, tenantSlug, loading: tenantLoading, error: tenantError, theme, toggleTheme, tenantPath } = useTenant();
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -53,24 +58,6 @@ export default function Home() {
   const [overdueCount, setOverdueCount] = useState(0);
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
-
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('gimpa_theme');
-      if (saved === 'dark' || saved === 'light') return saved;
-    }
-    return 'light';
-  });
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    localStorage.setItem('gimpa_theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
-  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -142,11 +129,12 @@ export default function Home() {
     const isAuthedNonGuest = isAuthenticated && !isGuest;
 
     if (!isAuthedNonGuest && !publicTabs.has(tab)) {
-      navigate('/login');
+      navigate(tenantPath('/login'));
       return;
     }
     if (tab === 'phd' && !canViewPhdHub) return;
     if (tab === 'approval' && !isReviewer) return;
+    if (tab === 'branding' && !isAdminAreaUser) return;
     setActiveTab(tab);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -215,8 +203,41 @@ export default function Home() {
     { tab: 'approval',  label: 'Approval Workflow',   icon: BookOpen,      show: isReviewer, badge: overdueCount > 0 ? overdueCount : null },
     { tab: 'phd',       label: 'PhD Hub',             icon: GraduationCap, show: canViewPhdHub },
     { tab: 'librarian', label: 'Schools and users',   icon: Building2,     show: isAdministrationUser },
+    { tab: 'branding',  label: 'Branding & Settings', icon: Palette,       show: isAdminAreaUser },
     { tab: 'profile',   label: 'My Profile',          icon: User,          show: isAuthenticated && user?.role !== 'guest' },
   ] as Array<{tab:string;label:string;icon:React.ElementType;show:boolean|undefined;badge?:number|null}>).filter(item => item.show);
+
+  if (tenantLoading && !tenant) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', color: 'var(--text-muted)' }}>
+        Loading institution workspace...
+      </div>
+    );
+  }
+
+  if (tenantError && !tenant) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', padding: 24 }}>
+        <div className="fp-card" style={{ maxWidth: 460, textAlign: 'center', padding: 36 }}>
+          <Building2 style={{ width: 40, height: 40, margin: '0 auto 12px', color: 'var(--fp-olive)' }} />
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 8px' }}>Institution Workspace Unavailable</h1>
+          <p style={{ fontSize: 13.5, color: 'var(--text-muted)', margin: '0 0 22px' }}>
+            {tenantError}
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
+            <button type="button" onClick={() => navigate('/')} className="btn-fp-olive" style={{ padding: '9px 18px', fontSize: 13.5 }}>
+              Browse All Institutions
+            </button>
+            <button type="button" onClick={() => navigate('/onboard')} className="btn-fp-outline" style={{ padding: '9px 18px', fontSize: 13.5 }}>
+              Register Institution
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const brandShortName = tenant?.short_name || tenant?.name || 'GIMPA';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--bg-main)', color: 'var(--text-main)', fontFamily: "'Outfit', 'Inter', sans-serif" }}>
@@ -272,25 +293,41 @@ export default function Home() {
               padding: 0,
             }}
           >
-            <div style={{
-              width: 34,
-              height: 34,
-              borderRadius: '50%',
-              border: '2px solid var(--text-main)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-main)',
-            }}>
-              <Globe style={{ width: 18, height: 18, strokeWidth: 2.2 }} />
-            </div>
+            {tenant?.logo_url ? (
+              <img
+                src={tenant.logo_url}
+                alt={brandShortName}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  objectFit: 'contain',
+                  background: '#ffffff',
+                  padding: 3,
+                  border: '1px solid rgba(0,0,0,0.08)',
+                }}
+              />
+            ) : (
+              <div style={{
+                width: 34,
+                height: 34,
+                borderRadius: '50%',
+                border: '2px solid var(--header-text, var(--text-main))',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--header-text, var(--text-main))',
+              }}>
+                <Globe style={{ width: 18, height: 18, strokeWidth: 2.2 }} />
+              </div>
+            )}
             <span style={{
               fontSize: 17,
               fontWeight: 600,
-              color: 'var(--text-main)',
+              color: 'var(--header-text, var(--text-main))',
               letterSpacing: '-0.01em',
             }}>
-              GIMPA Repository
+              {brandShortName} Repository
             </span>
           </button>
         </div>
@@ -301,7 +338,7 @@ export default function Home() {
           {user && isAuthenticated && (user.role === 'student' || user.role === 'member') && (
             <button
               type="button"
-              onClick={() => navigate('/submit-proposal')}
+              onClick={() => navigate(tenantPath('/submit-proposal'))}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -514,13 +551,13 @@ export default function Home() {
           {user && isAuthenticated && user.role !== 'guest' ? (
             <button
               type="button"
-              onClick={async () => { await logout(); navigate('/login'); }}
+              onClick={async () => { await logout(); navigate(tenantPath('/login')); }}
               style={{
                 background: 'none',
                 border: 'none',
                 padding: 6,
                 cursor: 'pointer',
-                color: 'var(--text-main)',
+                color: 'var(--header-text, var(--text-main))',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -532,7 +569,7 @@ export default function Home() {
           ) : (
             <button
               type="button"
-              onClick={() => navigate('/login')}
+              onClick={() => navigate(tenantPath('/login'))}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -541,7 +578,7 @@ export default function Home() {
                 background: 'var(--fp-olive)',
                 border: 'none',
                 borderRadius: 8,
-                color: '#ffffff',
+                color: 'var(--fp-olive-text, #ffffff)',
                 fontSize: 13,
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -637,6 +674,25 @@ export default function Home() {
                 {user.name}
               </div>
             )}
+            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: 12, color: 'var(--fp-olive)', fontWeight: 600, cursor: 'pointer' }}
+              >
+                ← Switch Institution ({tenantSlug || 'gimpa'})
+              </button>
+              {user?.isPlatformAdmin && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/platform')}
+                  style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: 12, color: 'var(--fp-olive)', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                  <Shield style={{ width: 12, height: 12 }} />
+                  <span>Platform Admin Console</span>
+                </button>
+              )}
+            </div>
           </div>
         </aside>
 
@@ -691,6 +747,7 @@ export default function Home() {
           {activeTab === 'phd' && canViewPhdHub && <PhdHub />}
           {activeTab === 'profile'  && isAuthenticated && user?.role !== 'guest' && <Profile />}
           {activeTab === 'approval' && isReviewer && <ApprovalWorkflow />}
+          {activeTab === 'branding' && isAdminAreaUser && <InstitutionSettings />}
           {activeTab === 'librarian' && isAdministrationUser && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 40 }}>
               <AccountManagement />

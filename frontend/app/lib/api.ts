@@ -5,6 +5,26 @@ const DEFAULT_API_URL = ""
 const baseUrl = (import.meta as { env?: Record<string, string> }).env?.VITE_API_URL ?? DEFAULT_API_URL
 export const apiBase = baseUrl ? `${baseUrl.replace(/\/$/, "")}/api` : "/api"
 
+let _activeTenantSlug: string | null = null
+
+export function setActiveTenantSlug(slug: string | null): void {
+  _activeTenantSlug = slug ? slug.trim().toLowerCase() : null
+}
+
+export function getActiveTenantSlug(): string | null {
+  return _activeTenantSlug
+}
+
+function tenantAwareFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+  const headers = new Headers(init?.headers || {})
+  const isPlatformEndpoint = urlStr.includes("/api/platform/") || urlStr.includes("/api/institutions/public") || urlStr.includes("/api/institutions/onboard") || urlStr.includes("/api/institutions/check-slug")
+  if (_activeTenantSlug && !isPlatformEndpoint && !headers.has("X-Tenant-Slug")) {
+    headers.set("X-Tenant-Slug", _activeTenantSlug)
+  }
+  return globalThis.fetch(input, { ...init, headers })
+}
+
 export interface TokenResponse {
   access_token: string
   refresh_token: string
@@ -30,6 +50,9 @@ export type ApiUserRole =
 
 export interface ApiUser {
   id: number
+  institution_id?: number | null
+  institution_slug?: string | null
+  institution_name?: string | null
   email: string
   school_id: string | null
   school: string | null
@@ -41,6 +64,7 @@ export interface ApiUser {
   max_student_ceiling?: number
   is_active: boolean
   is_admin: boolean
+  is_platform_admin?: boolean
   role: ApiUserRole
   roles?: ApiUserRole[]
   must_change_password?: boolean
@@ -308,7 +332,7 @@ export async function apiLogin(email: string, password: string): Promise<TokenRe
   const body = new URLSearchParams()
   body.set("username", email)
   body.set("password", password)
-  const response = await fetch(`${apiBase}/auth/login`, {
+  const response = await tenantAwareFetch(`${apiBase}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -325,7 +349,7 @@ export async function apiRegister(
   school?: string,
   department?: string,
 ): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/auth/register`, {
+  const response = await tenantAwareFetch(`${apiBase}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, role, full_name: fullName, school_id: schoolId, school, department }),
@@ -334,7 +358,7 @@ export async function apiRegister(
 }
 
 export async function apiRefresh(refreshToken: string): Promise<TokenResponse> {
-  const response = await fetch(`${apiBase}/auth/refresh`, {
+  const response = await tenantAwareFetch(`${apiBase}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -343,7 +367,7 @@ export async function apiRefresh(refreshToken: string): Promise<TokenResponse> {
 }
 
 export async function apiLogout(refreshToken: string): Promise<void> {
-  await fetch(`${apiBase}/auth/logout`, {
+  await tenantAwareFetch(`${apiBase}/auth/logout`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -351,7 +375,7 @@ export async function apiLogout(refreshToken: string): Promise<void> {
 }
 
 export async function apiMe(accessToken: string): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/me`, {
+  const response = await tenantAwareFetch(`${apiBase}/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiUser>(response)
@@ -413,7 +437,7 @@ export async function apiUpdateUser(
   payload: { full_name?: string; school_id?: string; school?: string; department?: string; password?: string },
   accessToken: string,
 ): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/users/${userId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/${userId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -428,7 +452,7 @@ export async function apiAdminCreateUser(
   payload: ApiAdminCreateUserPayload,
   accessToken: string,
 ): Promise<ApiAdminCreateUserResult> {
-  const response = await fetch(`${apiBase}/admin/users`, {
+  const response = await tenantAwareFetch(`${apiBase}/admin/users`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -448,14 +472,14 @@ export async function apiListUsers(accessToken: string, params: ApiListUsersPara
   if (typeof params.is_admin === "boolean") query.set("is_admin", String(params.is_admin))
   if (params.role) query.set("role", params.role)
 
-  const response = await fetch(`${apiBase}/users${query.toString() ? `?${query.toString()}` : ""}`, {
+  const response = await tenantAwareFetch(`${apiBase}/users${query.toString() ? `?${query.toString()}` : ""}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiUser[]>(response)
 }
 
 export async function apiDeleteUser(userId: number, accessToken: string): Promise<void> {
-  const response = await fetch(`${apiBase}/users/${userId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/${userId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -466,7 +490,7 @@ export async function apiDeleteUser(userId: number, accessToken: string): Promis
 }
 
 export async function apiUpdateUserRole(userId: number, role: ApiUserRole, accessToken: string): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/users/${userId}/role`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/${userId}/role`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -478,7 +502,7 @@ export async function apiUpdateUserRole(userId: number, role: ApiUserRole, acces
 }
 
 export async function apiAssignUserRole(userId: number, role: ApiUserRole, accessToken: string): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/users/${userId}/roles`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/${userId}/roles`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -490,7 +514,7 @@ export async function apiAssignUserRole(userId: number, role: ApiUserRole, acces
 }
 
 export async function apiRemoveUserRole(userId: number, role: ApiUserRole, accessToken: string): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/users/${userId}/roles/${role}`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/${userId}/roles/${role}`, {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -500,7 +524,7 @@ export async function apiRemoveUserRole(userId: number, role: ApiUserRole, acces
 }
 
 export async function apiActivateUser(userId: number, accessToken: string): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/users/${userId}/activate`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/${userId}/activate`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -608,7 +632,7 @@ export async function apiAdminUpdateUser(
   payload: ApiUserUpdatePayload,
   accessToken: string
 ): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/users/${userId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/${userId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -624,7 +648,7 @@ export async function apiAdminResetPassword(
   payload: ApiAdminPasswordResetPayload,
   accessToken: string
 ): Promise<ApiAdminPasswordResetResponse> {
-  const response = await fetch(`${apiBase}/users/${userId}/reset-password`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/${userId}/reset-password`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -639,7 +663,7 @@ export async function apiAdminBroadcastPreview(
   filter: ApiAdminBroadcastFilter,
   accessToken: string
 ): Promise<ApiAdminBroadcastPreviewResponse> {
-  const response = await fetch(`${apiBase}/users/broadcast-preview`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/broadcast-preview`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -656,7 +680,7 @@ export async function apiUploadBroadcastAttachment(
 ): Promise<BroadcastAttachmentItem> {
   const formData = new FormData()
   formData.append("file", file)
-  const response = await fetch(`${apiBase}/users/broadcast-attachment`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/broadcast-attachment`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -672,7 +696,7 @@ export async function apiPreviewBroadcastCsv(
 ): Promise<BroadcastCsvPreviewResponse> {
   const formData = new FormData()
   formData.append("file", file)
-  const response = await fetch(`${apiBase}/users/broadcast-csv-preview`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/broadcast-csv-preview`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -686,7 +710,7 @@ export async function apiAdminSendBroadcast(
   payload: ApiAdminBroadcastRequest,
   accessToken: string
 ): Promise<ApiAdminBroadcastResponse> {
-  const response = await fetch(`${apiBase}/users/broadcast`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/broadcast`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -723,17 +747,17 @@ export async function apiListPapers(params: {
   if (typeof params.limit === "number") query.set("limit", String(params.limit))
   if (typeof params.catalog === "boolean") query.set("catalog", String(params.catalog))
 
-  const response = await fetch(`${apiBase}/papers${query.toString() ? `?${query.toString()}` : ""}`)
+  const response = await tenantAwareFetch(`${apiBase}/papers${query.toString() ? `?${query.toString()}` : ""}`)
   return handleResponse<ApiPaper[]>(response)
 }
 
 export async function apiGetPaper(paperId: number): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/papers/${paperId}`)
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}`)
   return handleResponse<ApiPaper>(response)
 }
 
 export async function apiCreatePaper(payload: ApiCreatePaperPayload, accessToken: string): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/papers`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -761,7 +785,7 @@ export async function apiUploadPaper(payload: ApiUploadPaperPayload, accessToken
   form.set("authors", JSON.stringify(payload.authors || []))
   form.set("file", payload.file)
 
-  const response = await fetch(`${apiBase}/papers/upload`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/upload`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -770,35 +794,35 @@ export async function apiUploadPaper(payload: ApiUploadPaperPayload, accessToken
 }
 
 export async function apiGetPendingPapers(accessToken: string): Promise<ApiPaper[]> {
-  const response = await fetch(`${apiBase}/papers/pending`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/pending`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaper[]>(response)
 }
 
 export async function apiGetReviewedPapers(accessToken: string): Promise<ApiPaper[]> {
-  const response = await fetch(`${apiBase}/papers/reviewed`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/reviewed`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaper[]>(response)
 }
 
 export async function apiGetDepartmentSupervisorReviewedPapers(accessToken: string): Promise<ApiPaper[]> {
-  const response = await fetch(`${apiBase}/papers/department/supervisor-reviewed`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/department/supervisor-reviewed`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaper[]>(response)
 }
 
 export async function apiGetDepartmentSupervisorReviewSummary(accessToken: string): Promise<ApiSupervisorReviewSummary[]> {
-  const response = await fetch(`${apiBase}/papers/department/supervisor-review-summary`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/department/supervisor-review-summary`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiSupervisorReviewSummary[]>(response)
 }
 
 export async function apiGetRevisionPapers(accessToken: string): Promise<ApiPaper[]> {
-  const response = await fetch(`${apiBase}/papers/revisions`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/revisions`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaper[]>(response)
@@ -810,7 +834,7 @@ export async function apiReviewPaper(
   comments: string,
   accessToken: string,
 ): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/review`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/review`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -822,14 +846,14 @@ export async function apiReviewPaper(
 }
 
 export async function apiTrackPaperView(paperId: number): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/view`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/view`, {
     method: "POST",
   })
   return handleResponse<ApiPaper>(response)
 }
 
 export async function apiTrackPaperDownload(paperId: number, accessToken: string): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/download`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/download`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -840,13 +864,13 @@ export async function apiDownloadPaperFile(
   paperId: number,
   accessToken: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  let response = await fetch(`${apiBase}/papers/${paperId}/binary?t=${Date.now()}`, {
+  let response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/binary?t=${Date.now()}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
     // Fallback to legacy endpoint path.
-    response = await fetch(`${apiBase}/papers/${paperId}/file?t=${Date.now()}`, {
+    response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/file?t=${Date.now()}`, {
       cache: "no-store",
       headers: { Authorization: `Bearer ${accessToken}` },
     })
@@ -871,7 +895,7 @@ export async function apiDownloadReviewedPaperFile(
   paperId: number,
   accessToken: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/reviewed-file?t=${Date.now()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/reviewed-file?t=${Date.now()}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -894,7 +918,7 @@ export async function apiHasReviewedPaperFile(
   paperId: number,
   accessToken: string,
 ): Promise<boolean> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/reviewed-file?t=${Date.now()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/reviewed-file?t=${Date.now()}`, {
     method: "HEAD",
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -911,7 +935,7 @@ export async function apiUploadCorrectedPaperFile(
   const form = new FormData()
   form.set("file", file)
   if (note.trim()) form.set("note", note.trim())
-  const response = await fetch(`${apiBase}/papers/${paperId}/corrected-file`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/corrected-file`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -923,7 +947,7 @@ export async function apiDownloadPaperFeedbackFile(
   paperId: number,
   accessToken: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/feedback-file?t=${Date.now()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/feedback-file?t=${Date.now()}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -947,7 +971,7 @@ export async function apiGetPaperEditorConfig(
   accessToken: string,
   docType: string = "paper",
 ): Promise<ApiOnlyOfficeEditorConfigResponse> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/editor-config?doc_type=${docType}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/editor-config?doc_type=${docType}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiOnlyOfficeEditorConfigResponse>(response)
@@ -956,7 +980,7 @@ export async function apiGetPaperEditorConfig(
 export async function apiGetExaminerResultsExcelEditorConfig(
   accessToken: string,
 ): Promise<ApiOnlyOfficeEditorConfigResponse> {
-  const response = await fetch(`${apiBase}/papers/examiner/results-excel-config`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/examiner/results-excel-config`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiOnlyOfficeEditorConfigResponse>(response)
@@ -966,7 +990,7 @@ export async function apiGetStepEditorConfig(
   stepId: number,
   accessToken: string,
 ): Promise<ApiOnlyOfficeEditorConfigResponse> {
-  const response = await fetch(`${apiBase}/theses/steps/${stepId}/editor-config`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/steps/${stepId}/editor-config`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiOnlyOfficeEditorConfigResponse>(response)
@@ -974,7 +998,7 @@ export async function apiGetStepEditorConfig(
 
 
 export async function apiGetPaperAnnotations(paperId: number, accessToken: string): Promise<ApiPaperAnnotation[]> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/annotations`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/annotations`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaperAnnotation[]>(response)
@@ -988,7 +1012,7 @@ export async function apiCreatePaperAnnotation(
   const form = new FormData()
   form.set("text", payload.text)
   if (payload.location?.trim()) form.set("location", payload.location.trim())
-  const response = await fetch(`${apiBase}/papers/${paperId}/annotations`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/annotations`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1005,7 +1029,7 @@ export async function apiUpdatePaperAnnotation(
   const form = new FormData()
   if (typeof payload.text === "string") form.set("text", payload.text)
   if (typeof payload.resolved === "boolean") form.set("resolved", String(payload.resolved))
-  const response = await fetch(`${apiBase}/papers/${paperId}/annotations/${annotationId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/annotations/${annotationId}`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1018,7 +1042,7 @@ export async function apiDeletePaperAnnotation(
   annotationId: number,
   accessToken: string,
 ): Promise<void> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/annotations/${annotationId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/annotations/${annotationId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1030,33 +1054,33 @@ export async function apiDeletePaperAnnotation(
 
 export async function apiGetPaperStats(userId?: number): Promise<ApiPaperStats> {
   const url = userId ? `${apiBase}/papers/stats?user_id=${userId}` : `${apiBase}/papers/stats`
-  const response = await fetch(url)
+  const response = await tenantAwareFetch(url)
   return handleResponse<ApiPaperStats>(response)
 }
 
 export async function apiGetMyPapers(accessToken: string): Promise<ApiPaper[]> {
-  const response = await fetch(`${apiBase}/papers/mine`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/mine`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaper[]>(response)
 }
 
 export async function apiListSupervisors(accessToken: string): Promise<ApiUser[]> {
-  const response = await fetch(`${apiBase}/supervisors`, {
+  const response = await tenantAwareFetch(`${apiBase}/supervisors`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiUser[]>(response)
 }
 
 export async function apiGetNotifications(accessToken: string): Promise<ApiNotification[]> {
-  const response = await fetch(`${apiBase}/notifications`, {
+  const response = await tenantAwareFetch(`${apiBase}/notifications`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiNotification[]>(response)
 }
 
 export async function apiMarkNotificationRead(notificationId: number, accessToken: string): Promise<ApiNotification> {
-  const response = await fetch(`${apiBase}/notifications/${notificationId}/read`, {
+  const response = await tenantAwareFetch(`${apiBase}/notifications/${notificationId}/read`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1067,7 +1091,7 @@ export async function apiListStudents(accessToken: string, params: { skip?: numb
   const query = new URLSearchParams()
   if (typeof params.skip === "number") query.set("skip", String(params.skip))
   if (typeof params.limit === "number") query.set("limit", String(params.limit))
-  const response = await fetch(`${apiBase}/students${query.toString() ? `?${query.toString()}` : ""}`, {
+  const response = await tenantAwareFetch(`${apiBase}/students${query.toString() ? `?${query.toString()}` : ""}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiStudent[]>(response)
@@ -1085,7 +1109,7 @@ export async function apiImportAccounts(
   if (payload.studentsFile) form.set("students_file", payload.studentsFile)
   if (payload.lecturersFile) form.set("lecturers_file", payload.lecturersFile)
   if (payload.libraryFile) form.set("library_file", payload.libraryFile)
-  const response = await fetch(`${apiBase}/admin/import-accounts`, {
+  const response = await tenantAwareFetch(`${apiBase}/admin/import-accounts`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1098,7 +1122,7 @@ export async function apiChangePassword(
   newPassword: string,
   accessToken: string,
 ): Promise<ApiUser> {
-  const response = await fetch(`${apiBase}/users/change-password`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/change-password`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1109,15 +1133,19 @@ export async function apiChangePassword(
   return handleResponse<ApiUser>(response)
 }
 
-export async function apiListDepartments(accessToken: string): Promise<ApiDepartment[]> {
-  const response = await fetch(`${apiBase}/departments`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+export async function apiListDepartments(accessToken?: string): Promise<ApiDepartment[]> {
+  const headers: Record<string, string> = {}
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`
+  }
+  const response = await tenantAwareFetch(`${apiBase}/departments`, {
+    headers,
   })
   return handleResponse<ApiDepartment[]>(response)
 }
 
 export async function apiSyncDefaultDepartments(accessToken: string): Promise<ApiDepartment[]> {
-  const response = await fetch(`${apiBase}/departments/sync-defaults`, {
+  const response = await tenantAwareFetch(`${apiBase}/departments/sync-defaults`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1129,7 +1157,7 @@ export async function apiAssignDepartmentDean(
   userId: number,
   accessToken: string,
 ): Promise<ApiDepartment> {
-  const response = await fetch(`${apiBase}/departments/${departmentId}/assign-dean`, {
+  const response = await tenantAwareFetch(`${apiBase}/departments/${departmentId}/assign-dean`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1145,7 +1173,7 @@ export async function apiAssignDepartmentHod(
   userId: number,
   accessToken: string,
 ): Promise<ApiDepartment> {
-  const response = await fetch(`${apiBase}/departments/${departmentId}/assign-hod`, {
+  const response = await tenantAwareFetch(`${apiBase}/departments/${departmentId}/assign-hod`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1160,7 +1188,7 @@ export async function apiListDepartmentSupervisors(
   departmentId: number,
   accessToken: string,
 ): Promise<ApiDepartmentSupervisor[]> {
-  const response = await fetch(`${apiBase}/departments/${departmentId}/supervisors`, {
+  const response = await tenantAwareFetch(`${apiBase}/departments/${departmentId}/supervisors`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiDepartmentSupervisor[]>(response)
@@ -1171,7 +1199,7 @@ export async function apiAddDepartmentSupervisors(
   supervisorUserIds: number[],
   accessToken: string,
 ): Promise<ApiDepartmentSupervisor[]> {
-  const response = await fetch(`${apiBase}/departments/${departmentId}/supervisors`, {
+  const response = await tenantAwareFetch(`${apiBase}/departments/${departmentId}/supervisors`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1187,7 +1215,7 @@ export async function apiRemoveDepartmentSupervisor(
   supervisorUserId: number,
   accessToken: string,
 ): Promise<void> {
-  const response = await fetch(`${apiBase}/departments/${departmentId}/supervisors/${supervisorUserId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/departments/${departmentId}/supervisors/${supervisorUserId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1242,14 +1270,14 @@ export async function apiGetPipelineMetrics(
   if (program) params.set("program", program)
   if (degreeLevel) params.set("degree_level", degreeLevel)
   const queryString = params.toString() ? `?${params.toString()}` : ""
-  const response = await fetch(`${apiBase}/papers/pipeline${queryString}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/pipeline${queryString}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPipelineMetrics>(response)
 }
 
 export async function apiGetAnnotations(paperId: number, accessToken: string): Promise<ApiPaperAnnotation[]> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/annotations`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/annotations`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaperAnnotation[]>(response)
@@ -1265,7 +1293,7 @@ export async function apiAddAnnotation(
   body.append("text", text)
   if (location) body.append("location", location)
 
-  const response = await fetch(`${apiBase}/papers/${paperId}/annotations`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/annotations`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body,
@@ -1278,7 +1306,7 @@ export async function apiDeleteAnnotation(
   annotationId: number,
   accessToken: string,
 ): Promise<void> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/annotations/${annotationId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/annotations/${annotationId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1306,7 +1334,7 @@ export async function apiCreateExternalExaminer(
   payload: ApiAdminCreateUserPayload,
   accessToken: string,
 ): Promise<ApiAdminCreateUserResult> {
-  const response = await fetch(`${apiBase}/users/external-examiner`, {
+  const response = await tenantAwareFetch(`${apiBase}/users/external-examiner`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1326,7 +1354,7 @@ export async function apiProposalDecision(
   const form = new FormData()
   form.set('decision', decision)
   if (comment.trim()) form.set('comment', comment)
-  const response = await fetch(`${apiBase}/theses/${paperId}/proposal/decision`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${paperId}/proposal/decision`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1341,7 +1369,7 @@ export async function apiSubmitProposal(
 ): Promise<ApiPaper> {
   const form = new FormData()
   form.append('file', file)
-  const response = await fetch(`${apiBase}/theses/${paperId}/proposal`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${paperId}/proposal`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1355,7 +1383,7 @@ export async function apiDownloadStepFile(
   stepId: number,
   accessToken: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${apiBase}/theses/steps/${stepId}/file?t=${Date.now()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/steps/${stepId}/file?t=${Date.now()}`, {
     cache: 'no-store',
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1376,7 +1404,7 @@ export async function apiDownloadStepFile(
 
 
 export async function apiCompletePhase3(paperId: number, accessToken: string): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/complete-phase3`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/complete-phase3`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1398,7 +1426,7 @@ export async function apiAssignExaminers(
   if (degreeLevel) {
     form.set("degree_level", degreeLevel)
   }
-  const response = await fetch(`${apiBase}/papers/${paperId}/assign-examiners`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/assign-examiners`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1423,7 +1451,7 @@ export async function apiUploadResults(
   if (payload.file) {
     form.set("file", payload.file)
   }
-  const response = await fetch(`${apiBase}/papers/${paperId}/upload-results`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/upload-results`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1438,7 +1466,7 @@ export async function apiUploadCorrections(
 ): Promise<ApiPaper> {
   const form = new FormData()
   form.set("file", file)
-  const response = await fetch(`${apiBase}/papers/${paperId}/upload-corrections`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/upload-corrections`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1450,7 +1478,7 @@ export async function apiSubmitInSystemCorrections(
   paperId: number,
   accessToken: string,
 ): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/submit-in-system-corrections`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/submit-in-system-corrections`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1461,7 +1489,7 @@ export async function apiSupervisorApproveCorrections(
   paperId: number,
   accessToken: string,
 ): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/supervisor-approve-corrections`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/supervisor-approve-corrections`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1475,7 +1503,7 @@ export async function apiSupervisorRejectCorrections(
 ): Promise<ApiPaper> {
   const form = new FormData()
   form.set("feedback", feedback)
-  const response = await fetch(`${apiBase}/papers/${paperId}/supervisor-reject-corrections`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/supervisor-reject-corrections`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1505,7 +1533,7 @@ export async function apiExportAcademicReport(
   if (params.status_filter && params.status_filter !== 'all') q.set('status_filter', params.status_filter)
   if (params.format) q.set('format', params.format)
 
-  const response = await fetch(`${apiBase}/papers/reports/export?${q.toString()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/reports/export?${q.toString()}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
@@ -1553,7 +1581,7 @@ export async function apiGetReportPreview(
   if (params.student_id && params.student_id > 0) q.set('student_id', String(params.student_id))
   if (params.status_filter && params.status_filter !== 'all') q.set('status_filter', params.status_filter)
   q.set('format', 'json')
-  const response = await fetch(`${apiBase}/papers/reports/export?${q.toString()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/reports/export?${q.toString()}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiReportPreviewRow[]>(response)
@@ -1568,7 +1596,7 @@ export async function apiCoordinatorApproveCorrections(
   const form = new FormData()
   form.set("decision", decision)
   if (comment) form.set("comment", comment)
-  const response = await fetch(`${apiBase}/papers/${paperId}/coordinator-approve-corrections`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/coordinator-approve-corrections`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1585,7 +1613,7 @@ export async function apiHodApproveCorrections(
   const form = new FormData()
   form.set("decision", decision)
   if (comment) form.set("comment", comment)
-  const response = await fetch(`${apiBase}/papers/${paperId}/hod-approve-corrections`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/hod-approve-corrections`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1598,7 +1626,7 @@ export async function apiDownloadExaminerScript(
   type: "internal" | "external",
   accessToken: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/examiner-script/${type}?t=${Date.now()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/examiner-script/${type}?t=${Date.now()}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1630,7 +1658,7 @@ export async function apiStudentUpdateChecklist(
   form.set("ch3", String(checklist.ch3))
   form.set("ch4", String(checklist.ch4))
   form.set("ch5", String(checklist.ch5))
-  const response = await fetch(`${apiBase}/papers/${paperId}/chapters/student`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/chapters/student`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1653,7 +1681,7 @@ export async function apiSupervisorUpdateChecklist(
   form.set("ch5", String(checklist.ch5))
   if (comments?.trim()) form.set("comments", comments.trim())
   if (rejectedChapter) form.set("rejected_chapter", String(rejectedChapter))
-  const response = await fetch(`${apiBase}/papers/${paperId}/chapters/supervisor`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/chapters/supervisor`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1668,7 +1696,7 @@ export async function apiUploadCombinedThesis(
 ): Promise<ApiPaper> {
   const form = new FormData()
   form.set("file", file)
-  const response = await fetch(`${apiBase}/papers/${paperId}/upload-combined-thesis`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/upload-combined-thesis`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1683,7 +1711,7 @@ export async function apiUploadDraft(
 ): Promise<ApiPaper> {
   const form = new FormData()
   form.set("file", file)
-  const response = await fetch(`${apiBase}/papers/${paperId}/upload-draft`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/upload-draft`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1700,7 +1728,7 @@ export async function apiDownloadApprovedZip(
   if (discipline?.trim()) {
     url += `&discipline=${encodeURIComponent(discipline.trim())}`
   }
-  const response = await fetch(url, {
+  const response = await tenantAwareFetch(url, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1725,7 +1753,7 @@ export async function apiDownloadExaminerResultsZip(
   departmentId: number,
   accessToken: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${apiBase}/departments/${departmentId}/download-examiner-results-zip?t=${Date.now()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/departments/${departmentId}/download-examiner-results-zip?t=${Date.now()}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1749,7 +1777,7 @@ export async function apiDownloadExaminerResultsZip(
 export async function apiDownloadExaminerAssignedZip(
   accessToken: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${apiBase}/papers/examiner/download-zip?t=${Date.now()}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/examiner/download-zip?t=${Date.now()}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1779,7 +1807,7 @@ export async function apiAssignSupervisor(
   form.set("supervisor_id", String(supervisorId))
   // Use /theses/ endpoint which correctly sets status to phase2_proposal_submitted
   // (not /papers/ which wrongly jumps to phase3_chapters, skipping the proposal phase)
-  const response = await fetch(`${apiBase}/theses/${paperId}/assign-supervisor`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${paperId}/assign-supervisor`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1796,7 +1824,7 @@ export async function apiSupervisorApproveCombinedThesis(
   const form = new FormData()
   form.set("approved", String(approved))
   form.set("comments", comments)
-  const response = await fetch(`${apiBase}/papers/${paperId}/combined-thesis/supervisor`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/combined-thesis/supervisor`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1815,7 +1843,7 @@ export async function apiSubmitStep(
   form.set('step_number', String(stepNumber))
   if (title.trim()) form.set('title', title.trim())
   form.append('file', file)
-  const response = await fetch(`${apiBase}/theses/${paperId}/steps`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${paperId}/steps`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1827,7 +1855,7 @@ export async function apiResubmitEditedStep(
   stepId: number,
   accessToken: string,
 ): Promise<ApiPaper> {
-  const response = await fetch(`${apiBase}/theses/steps/${stepId}/resubmit`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/steps/${stepId}/resubmit`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1843,7 +1871,7 @@ export async function apiStepDecision(
   const form = new FormData()
   form.set("decision", decision)
   if (comments.trim()) form.set("comment", comments.trim())
-  const response = await fetch(`${apiBase}/steps/${stepId}/decision`, {
+  const response = await tenantAwareFetch(`${apiBase}/steps/${stepId}/decision`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -1852,7 +1880,7 @@ export async function apiStepDecision(
 }
 
 export async function apiDeleteThesis(paperId: number, accessToken: string): Promise<void> {
-  const response = await fetch(`${apiBase}/theses/${paperId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${paperId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1863,7 +1891,7 @@ export async function apiDeleteThesis(paperId: number, accessToken: string): Pro
 }
 
 export async function apiDeleteStep(stepId: number, accessToken: string): Promise<void> {
-  const response = await fetch(`${apiBase}/theses/steps/${stepId}`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/steps/${stepId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -1934,7 +1962,7 @@ export async function apiAssignThirdExaminer(
 ): Promise<{ message: string }> {
   const form = new FormData()
   form.set("third_examiner_id", String(thirdExaminerId))
-  const response = await fetch(`${apiBase}/theses/${thesisId}/assign-third-examiner`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${thesisId}/assign-third-examiner`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -1953,7 +1981,7 @@ export async function apiGetStudentFeedback(
   thesisId: number,
   accessToken: string,
 ): Promise<ApiStudentFeedbackResponse> {
-  const response = await fetch(`${apiBase}/theses/${thesisId}/feedback`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${thesisId}/feedback`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiStudentFeedbackResponse>(response)
@@ -1963,7 +1991,7 @@ export async function apiGetAdminExaminationMarks(
   thesisId: number,
   accessToken: string,
 ): Promise<ApiAdminMarkSheetResponse> {
-  const response = await fetch(`${apiBase}/theses/${thesisId}/examination-marks`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${thesisId}/examination-marks`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiAdminMarkSheetResponse>(response)
@@ -1992,7 +2020,7 @@ export async function apiSubmitExaminerGrading(
   if (payload.file) {
     form.append("file", payload.file)
   }
-  const response = await fetch(`${apiBase}/theses/${thesisId}/examination-marks`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/${thesisId}/examination-marks`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -2001,14 +2029,14 @@ export async function apiSubmitExaminerGrading(
 }
 
 export async function apiGetDepartmentResultsExcelEditorConfig(accessToken: string): Promise<ApiEditorConfigResponse> {
-  const response = await fetch(`${apiBase}/papers/department/results-excel-config`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/department/results-excel-config`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiEditorConfigResponse>(response)
 }
 
 export async function apiGetDeanResultsExcelEditorConfig(accessToken: string): Promise<ApiEditorConfigResponse> {
-  const response = await fetch(`${apiBase}/papers/dean/results-excel-config`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/dean/results-excel-config`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiEditorConfigResponse>(response)
@@ -2019,7 +2047,7 @@ export async function apiNotifyFeedbackSaved(
   docType: string,
   accessToken: string,
 ): Promise<{ message: string; paper_id: number }> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/notify-feedback-saved?type=${encodeURIComponent(docType)}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/notify-feedback-saved?type=${encodeURIComponent(docType)}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -2033,7 +2061,7 @@ export interface ApiBulkAssignSummary {
 }
 
 export async function apiDownloadStudentsTemplate(format: "csv" | "xlsx" = "csv"): Promise<Blob> {
-  const response = await fetch(`${apiBase}/users/students-template?format=${format}`)
+  const response = await tenantAwareFetch(`${apiBase}/users/students-template?format=${format}`)
   if (!response.ok) {
     const text = await response.text()
     throw new Error(text || "Failed to download student template")
@@ -2042,7 +2070,7 @@ export async function apiDownloadStudentsTemplate(format: "csv" | "xlsx" = "csv"
 }
 
 export async function apiDownloadLecturersTemplate(format: "csv" | "xlsx" = "csv"): Promise<Blob> {
-  const response = await fetch(`${apiBase}/users/lecturers-template?format=${format}`)
+  const response = await tenantAwareFetch(`${apiBase}/users/lecturers-template?format=${format}`)
   if (!response.ok) {
     const text = await response.text()
     throw new Error(text || "Failed to download lecturer template")
@@ -2051,7 +2079,7 @@ export async function apiDownloadLecturersTemplate(format: "csv" | "xlsx" = "csv
 }
 
 export async function apiDownloadBulkExaminerTemplate(accessToken: string, format: "csv" | "xlsx" = "csv"): Promise<Blob> {
-  const response = await fetch(`${apiBase}/papers/bulk-examiner-template?format=${format}`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/bulk-examiner-template?format=${format}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
@@ -2067,7 +2095,7 @@ export async function apiBulkAssignExaminers(
 ): Promise<ApiBulkAssignSummary> {
   const form = new FormData()
   form.append("file", file)
-  const response = await fetch(`${apiBase}/papers/bulk-assign-examiners`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/bulk-assign-examiners`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -2123,7 +2151,7 @@ export async function apiGetSupervisorAdvisees(
   program?: string,
 ): Promise<ApiSupervisorAdviseesResponse> {
   const query = program && program !== "ALL" ? `?program=${encodeURIComponent(program)}` : ""
-  const response = await fetch(`${apiBase}/theses/supervisor/advisees${query}`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/supervisor/advisees${query}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiSupervisorAdviseesResponse>(response)
@@ -2133,7 +2161,7 @@ export async function apiSupervisorMessageAdvisees(
   accessToken: string,
   payload: ApiSupervisorMessagePayload,
 ): Promise<ApiSupervisorMessageResult> {
-  const response = await fetch(`${apiBase}/theses/supervisor/message-advisees`, {
+  const response = await tenantAwareFetch(`${apiBase}/theses/supervisor/message-advisees`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2345,7 +2373,7 @@ export interface PhDReaccreditationFolderCreate {
 }
 
 export async function apiGetPhdDossiers(accessToken: string): Promise<ApiPhDStudentDossier[]> {
-  const response = await fetch(`${apiBase}/phd/dossiers`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/dossiers`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPhDStudentDossier[]>(response)
@@ -2356,7 +2384,7 @@ export async function apiGetSupervisionLogs(
   studentId?: number,
 ): Promise<ApiPhDSupervisionLog[]> {
   const query = studentId ? `?student_id=${studentId}` : ""
-  const response = await fetch(`${apiBase}/phd/supervision-logs${query}`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/supervision-logs${query}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPhDSupervisionLog[]>(response)
@@ -2366,7 +2394,7 @@ export async function apiCreateSupervisionLog(
   accessToken: string,
   payload: ApiPhDSupervisionLogCreate,
 ): Promise<ApiPhDSupervisionLog> {
-  const response = await fetch(`${apiBase}/phd/supervision-logs`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/supervision-logs`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2382,7 +2410,7 @@ export async function apiGetPhdSeminars(
   studentId?: number,
 ): Promise<ApiPhDSeminar[]> {
   const query = studentId ? `?student_id=${studentId}` : ""
-  const response = await fetch(`${apiBase}/phd/seminars${query}`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/seminars${query}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPhDSeminar[]>(response)
@@ -2392,7 +2420,7 @@ export async function apiRecordPhdSeminar(
   accessToken: string,
   payload: PhDSeminarCreate,
 ): Promise<ApiPhDSeminar> {
-  const response = await fetch(`${apiBase}/phd/seminars`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/seminars`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2408,7 +2436,7 @@ export async function apiGetComprehensiveExams(
   studentId?: number,
 ): Promise<ApiPhDComprehensiveExam[]> {
   const query = studentId ? `?student_id=${studentId}` : ""
-  const response = await fetch(`${apiBase}/phd/comprehensive-exams${query}`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/comprehensive-exams${query}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPhDComprehensiveExam[]>(response)
@@ -2418,7 +2446,7 @@ export async function apiRecordComprehensiveExam(
   accessToken: string,
   payload: PhDComprehensiveExamCreate,
 ): Promise<ApiPhDComprehensiveExam> {
-  const response = await fetch(`${apiBase}/phd/comprehensive-exams`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/comprehensive-exams`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2434,7 +2462,7 @@ export async function apiGetTeachingRequirements(
   studentId?: number,
 ): Promise<ApiPhDTeachingRequirement[]> {
   const query = studentId ? `?student_id=${studentId}` : ""
-  const response = await fetch(`${apiBase}/phd/teaching-requirements${query}`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/teaching-requirements${query}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPhDTeachingRequirement[]>(response)
@@ -2444,7 +2472,7 @@ export async function apiRecordTeachingRequirement(
   accessToken: string,
   payload: PhDTeachingRequirementCreate,
 ): Promise<ApiPhDTeachingRequirement> {
-  const response = await fetch(`${apiBase}/phd/teaching-requirements`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/teaching-requirements`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2460,7 +2488,7 @@ export async function apiGetProgressEvaluations(
   studentId?: number,
 ): Promise<ApiPhDProgressEvaluation[]> {
   const query = studentId ? `?student_id=${studentId}` : ""
-  const response = await fetch(`${apiBase}/phd/progress-evaluations${query}`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progress-evaluations${query}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPhDProgressEvaluation[]>(response)
@@ -2470,7 +2498,7 @@ export async function apiRecordProgressEvaluation(
   accessToken: string,
   payload: PhDProgressEvaluationCreate,
 ): Promise<ApiPhDProgressEvaluation> {
-  const response = await fetch(`${apiBase}/phd/progress-evaluations`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progress-evaluations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2486,7 +2514,7 @@ export async function apiGetReaccreditationFolders(
   academicYear?: string,
 ): Promise<ApiPhDReaccreditationFolder[]> {
   const query = academicYear ? `?academic_year=${encodeURIComponent(academicYear)}` : ""
-  const response = await fetch(`${apiBase}/phd/reaccreditation-folders${query}`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/reaccreditation-folders${query}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPhDReaccreditationFolder[]>(response)
@@ -2496,7 +2524,7 @@ export async function apiUploadReaccreditationFolderDoc(
   accessToken: string,
   payload: PhDReaccreditationFolderCreate,
 ): Promise<ApiPhDReaccreditationFolder> {
-  const response = await fetch(`${apiBase}/phd/reaccreditation-folders`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/reaccreditation-folders`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2526,7 +2554,7 @@ export interface ApiPhdRegulatoryReminderResponse {
 export async function apiSendPhdRegulatoryReminders(
   accessToken: string,
 ): Promise<ApiPhdRegulatoryReminderResponse> {
-  const response = await fetch(`${apiBase}/phd/regulatory-reminders`, {
+  const response = await tenantAwareFetch(`${apiBase}/phd/regulatory-reminders`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2555,7 +2583,7 @@ export async function apiCheckTopicDuplication(
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   if (token) headers["Authorization"] = `Bearer ${token}`
 
-  const response = await fetch(url.toString(), { method: "GET", headers })
+  const response = await tenantAwareFetch(url.toString(), { method: "GET", headers })
   return handleResponse<ApiDuplicateTopicCheckResponse>(response)
 }
 
@@ -2581,7 +2609,7 @@ export async function apiGetSupervisorCapacities(
   const url = new URL(`${apiBase}/supervisors/capacities`, window.location.origin)
   if (departmentId) url.searchParams.set("department_id", String(departmentId))
 
-  const response = await fetch(url.toString(), {
+  const response = await tenantAwareFetch(url.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiSupervisorCapacityItem[]>(response)
@@ -2599,7 +2627,7 @@ export async function apiUpdateSupervisorCapacity(
   if (specialization) url.searchParams.set("specialization", specialization)
   if (researchInterests) url.searchParams.set("research_interests", researchInterests)
 
-  const response = await fetch(url.toString(), {
+  const response = await tenantAwareFetch(url.toString(), {
     method: "PUT",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -2636,7 +2664,7 @@ export async function apiCheckPlagiarism(
   paperId: number,
   accessToken: string,
 ): Promise<ApiPlagiarismReport> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/check-plagiarism`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/check-plagiarism`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -2647,7 +2675,7 @@ export async function apiGetPlagiarismReport(
   paperId: number,
   accessToken: string,
 ): Promise<ApiPlagiarismReport> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/plagiarism-report`, {
+  const response = await tenantAwareFetch(`${apiBase}/papers/${paperId}/plagiarism-report`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPlagiarismReport>(response)
@@ -2691,7 +2719,7 @@ export async function apiGetSupervisorCommentsReport(
   if (params?.department_id) url.searchParams.set("department_id", String(params.department_id))
   if (params?.search) url.searchParams.set("search", params.search)
 
-  const response = await fetch(url.toString(), {
+  const response = await tenantAwareFetch(url.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiSupervisorCommentsReportResponse>(response)
@@ -2721,7 +2749,7 @@ export async function apiGetOverdueReviews(
   const url = new URL(`${apiBase}/reports/overdue-reviews`, window.location.origin)
   url.searchParams.set("threshold_days", String(thresholdDays))
 
-  const response = await fetch(url.toString(), {
+  const response = await tenantAwareFetch(url.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiOverdueReviewItem[]>(response)
@@ -2730,7 +2758,7 @@ export async function apiGetOverdueReviews(
 export async function apiTriggerOverdueAlerts(
   accessToken: string,
 ): Promise<{ overdue_count: number; dispatched_count: number; timestamp: string }> {
-  const response = await fetch(`${apiBase}/reports/trigger-overdue-alerts`, {
+  const response = await tenantAwareFetch(`${apiBase}/reports/trigger-overdue-alerts`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -2768,10 +2796,355 @@ export interface ApiDashboardLiveMetrics {
 export async function apiGetDashboardLiveMetrics(
   accessToken: string,
 ): Promise<ApiDashboardLiveMetrics> {
-  const response = await fetch(`${apiBase}/dashboard/live-metrics`, {
+  const response = await tenantAwareFetch(`${apiBase}/dashboard/live-metrics`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiDashboardLiveMetrics>(response)
+}
+
+// =============================================================================
+// Multi-School SaaS: Institution Onboarding, Branding & Platform Administration
+// =============================================================================
+
+export interface ApiContrastReport {
+  primary_text_color: string
+  primary_contrast_ratio: number
+  primary_passes_aa: boolean
+  secondary_text_color: string
+  secondary_contrast_ratio: number
+  secondary_passes_aa: boolean
+  accent_text_color: string
+  accent_contrast_ratio: number
+  accent_passes_aa: boolean
+  primary_on_neutral_ratio: number
+  accessible: boolean
+  warnings: string[]
+}
+
+export interface ApiInstitutionPublic {
+  id: number
+  name: string
+  short_name: string
+  slug: string
+  custom_domain?: string | null
+  status: string
+  is_active: boolean
+  website?: string | null
+  address?: string | null
+  contact_email?: string | null
+  allowed_email_domains?: string | null
+  academic_year?: string | null
+  allow_public_catalog: boolean
+  logo_url?: string | null
+  primary_color: string
+  secondary_color: string
+  accent_color: string
+  neutral_color: string
+  default_theme: string
+  workspace_url?: string | null
+  contrast?: ApiContrastReport | null
+}
+
+export interface ApiInstitutionAdmin extends ApiInstitutionPublic {
+  contact_name?: string | null
+  contact_phone?: string | null
+  admin_full_name?: string | null
+  admin_email?: string | null
+  admin_school_id?: string | null
+  approval_notes?: string | null
+  approved_by_id?: number | null
+  approved_at?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+  users_count: number
+  papers_count: number
+  departments_count: number
+}
+
+export interface ApiSlugAvailability {
+  slug: string
+  available: boolean
+  message: string
+  preview_url: string
+}
+
+export interface ApiInstitutionOnboardPayload {
+  name: string
+  short_name: string
+  slug: string
+  custom_domain?: string
+  contact_name: string
+  contact_email: string
+  contact_phone?: string
+  website?: string
+  address?: string
+  allowed_email_domains?: string
+  academic_year?: string
+  admin_full_name: string
+  admin_email: string
+  admin_school_id?: string
+  primary_color: string
+  secondary_color: string
+  accent_color: string
+  neutral_color: string
+  default_theme: "light" | "dark"
+}
+
+export interface ApiInstitutionBrandingUpdate {
+  name?: string
+  short_name?: string
+  website?: string
+  address?: string
+  contact_name?: string
+  contact_email?: string
+  contact_phone?: string
+  allowed_email_domains?: string
+  academic_year?: string
+  allow_public_catalog?: boolean
+  primary_color?: string
+  secondary_color?: string
+  accent_color?: string
+  neutral_color?: string
+  default_theme?: "light" | "dark"
+  reset_to_default?: boolean
+}
+
+export interface ApiInstitutionApprovalResponse {
+  institution: ApiInstitutionAdmin
+  workspace_url: string
+  login_url: string
+  admin_email: string
+  temporary_password?: string | null
+  email_sent: boolean
+  message: string
+}
+
+export interface ApiPlatformOverview {
+  status: string
+  total_institutions: number
+  approved_institutions: number
+  pending_institutions: number
+  suspended_institutions: number
+  rejected_institutions: number
+  total_users: number
+  total_papers: number
+  total_departments: number
+  storage_backend: string
+}
+
+export interface ApiTenantAuditLog {
+  id: number
+  institution_id: number | null
+  actor_id: number | null
+  actor_email: string | null
+  action: string
+  target_type: string | null
+  target_id: string | null
+  details: string | null
+  created_at: string | null
+}
+
+export async function apiListPublicInstitutions(): Promise<ApiInstitutionPublic[]> {
+  const response = await globalThis.fetch(`${apiBase}/institutions/public`)
+  return handleResponse<ApiInstitutionPublic[]>(response)
+}
+
+export async function apiCheckSlugAvailability(slug: string): Promise<ApiSlugAvailability> {
+  const response = await globalThis.fetch(`${apiBase}/institutions/check-slug/${encodeURIComponent(slug)}`)
+  return handleResponse<ApiSlugAvailability>(response)
+}
+
+export async function apiResolveInstitution(slug?: string): Promise<ApiInstitutionPublic> {
+  const query = slug ? `?slug=${encodeURIComponent(slug)}` : ""
+  const response = await globalThis.fetch(`${apiBase}/institutions/resolve${query}`)
+  return handleResponse<ApiInstitutionPublic>(response)
+}
+
+export async function apiOnboardInstitution(
+  payload: ApiInstitutionOnboardPayload,
+  logoFile?: File | null,
+): Promise<ApiInstitutionAdmin> {
+  if (logoFile) {
+    const form = new FormData()
+    Object.entries(payload).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && String(v).trim() !== "") {
+        form.append(k, String(v))
+      }
+    })
+    form.append("logo", logoFile)
+    const response = await globalThis.fetch(`${apiBase}/institutions/onboard-with-logo`, {
+      method: "POST",
+      body: form,
+    })
+    return handleResponse<ApiInstitutionAdmin>(response)
+  }
+
+  const response = await globalThis.fetch(`${apiBase}/institutions/onboard`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiInstitutionAdmin>(response)
+}
+
+export async function apiGetCurrentInstitution(accessToken: string): Promise<ApiInstitutionAdmin> {
+  const response = await tenantAwareFetch(`${apiBase}/institutions/current`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiInstitutionAdmin>(response)
+}
+
+export async function apiUpdateCurrentInstitutionBranding(
+  payload: ApiInstitutionBrandingUpdate,
+  accessToken: string,
+): Promise<ApiInstitutionAdmin> {
+  const response = await tenantAwareFetch(`${apiBase}/institutions/current/branding`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiInstitutionAdmin>(response)
+}
+
+export async function apiUploadInstitutionLogo(
+  file: File,
+  accessToken: string,
+): Promise<ApiInstitutionAdmin> {
+  const form = new FormData()
+  form.append("file", file)
+  const response = await tenantAwareFetch(`${apiBase}/institutions/current/logo`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  })
+  return handleResponse<ApiInstitutionAdmin>(response)
+}
+
+export async function apiDeleteInstitutionLogo(accessToken: string): Promise<ApiInstitutionAdmin> {
+  const response = await tenantAwareFetch(`${apiBase}/institutions/current/logo`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiInstitutionAdmin>(response)
+}
+
+export async function apiCreateDepartment(
+  payload: { name: string; faculty_name?: string },
+  accessToken: string,
+): Promise<ApiDepartment> {
+  const response = await tenantAwareFetch(`${apiBase}/departments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiDepartment>(response)
+}
+
+export async function apiGetInstitutionAuditLogs(
+  accessToken: string,
+  limit = 100,
+): Promise<ApiTenantAuditLog[]> {
+  const response = await tenantAwareFetch(`${apiBase}/institutions/current/audit-logs?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiTenantAuditLog[]>(response)
+}
+
+export async function apiExportInstitutionData(accessToken: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await tenantAwareFetch(`${apiBase}/institutions/current/export`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || "Failed to export institution data")
+  }
+  const cd = response.headers.get("Content-Disposition") || ""
+  const match = cd.match(/filename="?([^"]+)"?/)
+  const filename = match ? match[1] : "institution_data_export.json"
+  return { blob: await response.blob(), filename }
+}
+
+export async function apiGetPlatformOverview(accessToken: string): Promise<ApiPlatformOverview> {
+  const response = await globalThis.fetch(`${apiBase}/platform/overview`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiPlatformOverview>(response)
+}
+
+export async function apiPlatformListInstitutions(
+  accessToken: string,
+  statusFilter?: string,
+): Promise<ApiInstitutionAdmin[]> {
+  const query = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : ""
+  const response = await globalThis.fetch(`${apiBase}/platform/institutions${query}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiInstitutionAdmin[]>(response)
+}
+
+export async function apiPlatformApproveInstitution(
+  institutionId: number,
+  payload: { approval_notes?: string; initial_departments?: string[] },
+  accessToken: string,
+): Promise<ApiInstitutionApprovalResponse> {
+  const response = await globalThis.fetch(`${apiBase}/platform/institutions/${institutionId}/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiInstitutionApprovalResponse>(response)
+}
+
+export async function apiPlatformRejectInstitution(
+  institutionId: number,
+  reason: string,
+  accessToken: string,
+): Promise<ApiInstitutionAdmin> {
+  const response = await globalThis.fetch(`${apiBase}/platform/institutions/${institutionId}/reject`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ reason }),
+  })
+  return handleResponse<ApiInstitutionAdmin>(response)
+}
+
+export async function apiPlatformUpdateInstitutionStatus(
+  institutionId: number,
+  payload: { status: "approved" | "suspended" | "rejected"; is_active?: boolean; custom_domain?: string; approval_notes?: string },
+  accessToken: string,
+): Promise<ApiInstitutionAdmin> {
+  const response = await globalThis.fetch(`${apiBase}/platform/institutions/${institutionId}/status`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiInstitutionAdmin>(response)
+}
+
+export async function apiPlatformAuditLogs(
+  accessToken: string,
+  institutionId?: number,
+): Promise<ApiTenantAuditLog[]> {
+  const query = institutionId ? `?institution_id=${institutionId}` : ""
+  const response = await globalThis.fetch(`${apiBase}/platform/audit-logs${query}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiTenantAuditLog[]>(response)
 }
 
 
