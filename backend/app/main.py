@@ -14,6 +14,7 @@ from app.db.migrations import (
     ensure_multi_tenant_schema,
     ensure_paper_audit_tables,
     ensure_paper_workflow_columns,
+    ensure_phd_progression_schema,
     ensure_student_extended_columns,
     ensure_user_department_column,
     ensure_user_must_change_password_column,
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     ensure_correction_columns()
     ensure_examination_results_table()
     ensure_multi_tenant_schema()
+    ensure_phd_progression_schema()
     ensure_default_gimpa_tenant()
 
     app = FastAPI(title=settings.app_name)

@@ -36,6 +36,8 @@ from app.models.phd_system import (  # noqa: F401
     PhDSupervisionLog,
     PhDSeminar,
     PhDComprehensiveExam,
+    PhDCourseworkRecord,
+    PhDProgressionProfile,
     PhDTeachingRequirement,
     PhDProgressEvaluation,
     PhDReaccreditationFolder,

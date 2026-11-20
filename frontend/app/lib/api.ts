@@ -2183,7 +2183,7 @@ export interface ApiPhDStudentDossier {
   student_id: number
   student_name: string
   student_email: string
-  school_id?: number | null
+  school_id?: string | number | null
   specialization: string
   program: string
   research_stage: string
@@ -2197,6 +2197,28 @@ export interface ApiPhDStudentDossier {
   inactivity_alert: boolean
   supervisors: string[]
   recent_eval_rating?: string | null
+  // 6-Stage Doctoral Progression Pipeline Snapshot
+  current_stage_number: number
+  current_stage_label: string
+  courses_count: number
+  cumulative_gpa?: number | null
+  advisor_id?: number | null
+  advisor_name?: string | null
+  advisor_cleared_for_comps: boolean
+  comp_assessor_id?: number | null
+  comp_assessor_name?: string | null
+  comp_exam_passed: boolean
+  dissertation_supervisor_id?: number | null
+  dissertation_supervisor_name?: string | null
+  pre_viva_examiner_id?: number | null
+  pre_viva_examiner_name?: string | null
+  pre_viva_cleared: boolean
+  pre_viva_score?: number | null
+  pre_viva_verdict?: string | null
+  external_examiner_id?: number | null
+  external_examiner_name?: string | null
+  overall_defense_mark?: number | null
+  viva_verdict?: string | null
 }
 
 export interface ApiPhDSupervisionLog {
@@ -2263,13 +2285,17 @@ export interface PhDSeminarCreate {
 export interface ApiPhDComprehensiveExam {
   id: number
   student_id: number
+  assessor_id?: number | null
+  assessor_name?: string | null
   attempt_number: number
-  exam_date: string
+  exam_date?: string | null
   paper_part?: string | null
   result: string
   score?: number | null
+  cgpa?: number | null
   committee_members?: string | null
   remedial_instructions?: string | null
+  remarks?: string | null
   advanced_to_candidacy: boolean
   created_at: string
   student_name?: string | null
@@ -2277,6 +2303,7 @@ export interface ApiPhDComprehensiveExam {
 
 export interface PhDComprehensiveExamCreate {
   student_id: number
+  assessor_id?: number
   attempt_number: number
   exam_date: string
   paper_part?: string
@@ -2284,6 +2311,7 @@ export interface PhDComprehensiveExamCreate {
   score?: number
   committee_members?: string
   remedial_instructions?: string
+  remarks?: string
 }
 
 export interface ApiPhDTeachingRequirement {
@@ -2565,6 +2593,277 @@ export async function apiSendPhdRegulatoryReminders(
     },
   })
   return handleResponse<ApiPhdRegulatoryReminderResponse>(response)
+}
+
+// ----------------------------------------------------
+// 6-Stage PhD Progression Pipeline API
+// ----------------------------------------------------
+
+export interface ApiPhDFacultyMember {
+  id: number
+  full_name: string
+  email: string
+  role: string
+  department?: string | null
+  school?: string | null
+  is_external: boolean
+}
+
+export interface ApiPhDCourseworkRecord {
+  id: number
+  student_id: number
+  student_name?: string | null
+  course_code: string
+  course_title: string
+  academic_year: string
+  semester: string
+  credit_hours: number
+  assignment_score?: number | null
+  coursework_score?: number | null
+  exam_score?: number | null
+  total_score?: number | null
+  letter_grade?: string | null
+  grade_point?: number | null
+  status: string
+  instructor_name?: string | null
+  remarks?: string | null
+  recorded_by_id?: number | null
+  recorded_by_name?: string | null
+  created_at: string
+}
+
+export interface ApiPhDCourseworkCreate {
+  student_id: number
+  course_code: string
+  course_title: string
+  academic_year?: string
+  semester?: string
+  credit_hours?: number
+  assignment_score?: number
+  coursework_score?: number
+  exam_score?: number
+  total_score?: number
+  letter_grade?: string
+  status?: string
+  instructor_name?: string
+  remarks?: string
+}
+
+export interface ApiPhDProgressionProfile {
+  id?: number | null
+  student_id: number
+  student_name?: string | null
+  student_email?: string | null
+  advisor_id?: number | null
+  advisor_name?: string | null
+  courses_count: number
+  completed_courses_count: number
+  total_credits: number
+  cumulative_gpa?: number | null
+  advisor_cleared_for_comps: boolean
+  advisor_clearance_date?: string | null
+  advisor_clearance_notes?: string | null
+  comp_assessor_id?: number | null
+  comp_assessor_name?: string | null
+  comp_assessor_assigned_at?: string | null
+  comp_exam_passed: boolean
+  latest_comp_exam_result: string
+  latest_comp_exam_score?: number | null
+  dissertation_supervisor_id?: number | null
+  dissertation_supervisor_name?: string | null
+  co_supervisor_id?: number | null
+  co_supervisor_name?: string | null
+  supervisor_assigned_at?: string | null
+  seminars_attended_count: number
+  seminars_presented_count: number
+  supervision_logs_count: number
+  pre_viva_examiner_id?: number | null
+  pre_viva_examiner_name?: string | null
+  pre_viva_date?: string | null
+  pre_viva_score?: number | null
+  pre_viva_verdict?: string | null
+  pre_viva_cleared: boolean
+  pre_viva_remarks?: string | null
+  external_examiner_id?: number | null
+  external_examiner_name?: string | null
+  external_dispatched_at?: string | null
+  viva_date?: string | null
+  internal_examiner_mark?: number | null
+  external_examiner_mark?: number | null
+  oral_defense_mark?: number | null
+  overall_defense_mark?: number | null
+  viva_verdict?: string | null
+  viva_remarks?: string | null
+  current_stage_number: number
+  current_stage_label: string
+}
+
+export async function apiGetPhdFacultyDirectory(accessToken: string): Promise<ApiPhDFacultyMember[]> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/faculty-directory`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiPhDFacultyMember[]>(response)
+}
+
+export async function apiGetPhdCoursework(
+  accessToken: string,
+  studentId?: number,
+): Promise<ApiPhDCourseworkRecord[]> {
+  const query = studentId ? `?student_id=${studentId}` : ""
+  const response = await tenantAwareFetch(`${apiBase}/phd/coursework${query}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiPhDCourseworkRecord[]>(response)
+}
+
+export async function apiCreatePhdCoursework(
+  accessToken: string,
+  payload: ApiPhDCourseworkCreate,
+): Promise<ApiPhDCourseworkRecord> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/coursework`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiPhDCourseworkRecord>(response)
+}
+
+export async function apiUpdatePhdCoursework(
+  accessToken: string,
+  recordId: number,
+  payload: Partial<ApiPhDCourseworkCreate>,
+): Promise<ApiPhDCourseworkRecord> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/coursework/${recordId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiPhDCourseworkRecord>(response)
+}
+
+export async function apiDeletePhdCoursework(accessToken: string, recordId: number): Promise<void> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/coursework/${recordId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+}
+
+export async function apiGetPhdProgression(
+  accessToken: string,
+  studentId: number,
+): Promise<ApiPhDProgressionProfile> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progression/${studentId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiPhDProgressionProfile>(response)
+}
+
+export async function apiAssignPhdAdvisor(
+  accessToken: string,
+  studentId: number,
+  advisorId: number,
+): Promise<ApiPhDProgressionProfile> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progression/${studentId}/advisor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ advisor_id: advisorId }),
+  })
+  return handleResponse<ApiPhDProgressionProfile>(response)
+}
+
+export async function apiSetPhdAdvisorClearance(
+  accessToken: string,
+  studentId: number,
+  cleared: boolean,
+  notes?: string,
+): Promise<ApiPhDProgressionProfile> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progression/${studentId}/advisor-clearance`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ cleared, notes }),
+  })
+  return handleResponse<ApiPhDProgressionProfile>(response)
+}
+
+export async function apiAssignPhdAssessor(
+  accessToken: string,
+  studentId: number,
+  assessorId: number,
+): Promise<ApiPhDProgressionProfile> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progression/${studentId}/assign-assessor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ assessor_id: assessorId }),
+  })
+  return handleResponse<ApiPhDProgressionProfile>(response)
+}
+
+export async function apiAssignPhdDissertationSupervisor(
+  accessToken: string,
+  studentId: number,
+  dissertationSupervisorId: number,
+  coSupervisorId?: number,
+): Promise<ApiPhDProgressionProfile> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progression/${studentId}/assign-supervisor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({
+      dissertation_supervisor_id: dissertationSupervisorId,
+      co_supervisor_id: coSupervisorId || undefined,
+    }),
+  })
+  return handleResponse<ApiPhDProgressionProfile>(response)
+}
+
+export async function apiUpdatePhdPreViva(
+  accessToken: string,
+  studentId: number,
+  payload: {
+    pre_viva_examiner_id?: number
+    pre_viva_date?: string
+    pre_viva_score?: number
+    pre_viva_verdict?: string
+    pre_viva_cleared?: boolean
+    pre_viva_remarks?: string
+  },
+): Promise<ApiPhDProgressionProfile> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progression/${studentId}/pre-viva`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiPhDProgressionProfile>(response)
+}
+
+export async function apiUpdatePhdVivaDefense(
+  accessToken: string,
+  studentId: number,
+  payload: {
+    external_examiner_id?: number
+    viva_date?: string
+    internal_examiner_mark?: number
+    external_examiner_mark?: number
+    oral_defense_mark?: number
+    overall_defense_mark?: number
+    viva_verdict?: string
+    viva_remarks?: string
+  },
+): Promise<ApiPhDProgressionProfile> {
+  const response = await tenantAwareFetch(`${apiBase}/phd/progression/${studentId}/viva-defense`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiPhDProgressionProfile>(response)
 }
 
 export interface ApiDuplicateTopicCheckResponse {

@@ -337,6 +337,8 @@ def ensure_multi_tenant_schema() -> None:
         "phd_supervision_logs",
         "phd_seminars",
         "phd_comprehensive_exams",
+        "phd_coursework_records",
+        "phd_progression_profiles",
         "phd_teaching_requirements",
         "phd_progress_evaluations",
         "phd_reaccreditation_folders",
@@ -516,6 +518,31 @@ def ensure_default_gimpa_tenant() -> None:
                     db.commit()
         finally:
             db.close()
+
+
+def ensure_phd_progression_schema() -> None:
+    """Idempotently add 6-stage PhD progression columns to existing phd_comprehensive_exams table."""
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "phd_comprehensive_exams" not in table_names:
+        return
+
+    cols = {c["name"] for c in inspector.get_columns("phd_comprehensive_exams")}
+    statements: list[str] = []
+    if "assessor_id" not in cols:
+        statements.append("ALTER TABLE phd_comprehensive_exams ADD COLUMN assessor_id INTEGER")
+    if "paper_part" not in cols:
+        statements.append("ALTER TABLE phd_comprehensive_exams ADD COLUMN paper_part VARCHAR(200)")
+    if "score" not in cols:
+        statements.append("ALTER TABLE phd_comprehensive_exams ADD COLUMN score FLOAT")
+    if "remedial_instructions" not in cols:
+        statements.append("ALTER TABLE phd_comprehensive_exams ADD COLUMN remedial_instructions TEXT")
+
+    if statements:
+        with engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
+
 
 
 

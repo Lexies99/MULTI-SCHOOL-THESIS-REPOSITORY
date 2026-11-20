@@ -14,7 +14,9 @@ def _tenant_scoped_models() -> tuple[type, ...]:
     from app.models.paper import Paper
     from app.models.phd_system import (
         PhDComprehensiveExam,
+        PhDCourseworkRecord,
         PhDProgressEvaluation,
+        PhDProgressionProfile,
         PhDReaccreditationFolder,
         PhDSeminar,
         PhDSupervisionLog,
@@ -35,6 +37,8 @@ def _tenant_scoped_models() -> tuple[type, ...]:
         PhDSupervisionLog,
         PhDSeminar,
         PhDComprehensiveExam,
+        PhDCourseworkRecord,
+        PhDProgressionProfile,
         PhDTeachingRequirement,
         PhDProgressEvaluation,
         PhDReaccreditationFolder,
