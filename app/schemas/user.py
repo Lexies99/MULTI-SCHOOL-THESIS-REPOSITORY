@@ -68,25 +68,37 @@ class AdminUserCreate(UserBase):
     school_id: str | None = None
     school: str | None = None
     department: str | None = None
+    program: str | None = None
+    certification_type: str | None = None
+    block_code: str | None = None
+    year: int | None = None
 
     @model_validator(mode="after")
     def validate_role_specific_fields(self) -> "AdminUserCreate":
         role = (self.role or "").strip().lower()
+        full_name = (self.full_name or "").strip()
         school_id = (self.school_id or "").strip()
         school = (self.school or "").strip()
         department = (self.department or "").strip()
+
+        if not full_name:
+            raise ValueError("Full name is required")
 
         if role in {"student", "member"}:
             if not school:
                 raise ValueError("School is required for students")
             if not school_id:
-                raise ValueError("School ID is required for students")
+                raise ValueError("Student ID / ID Number is required for students")
 
-        if role in {"lecturer", "staff", "project_coordinator", "hod"}:
+        if role in {"lecturer", "project_supervisor", "staff", "project_coordinator", "hod"}:
             if not school:
                 raise ValueError("School is required for this role")
             if not department:
                 raise ValueError("Department is required for this role")
+
+        if role == "dean":
+            if not school:
+                raise ValueError("School is required for Dean")
 
         return self
 

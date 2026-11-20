@@ -22,6 +22,31 @@ from app.services.user_service import (
     update_user,
 )
 
+
+def _institution_login_url(institution) -> str:
+    slug = getattr(institution, "slug", None)
+    if slug:
+        from app.services.institution_service import build_workspace_url
+
+        return f"{build_workspace_url(slug)}/login"
+    return "https://thesis.manamatechnologies.com/login"
+
+VALID_IMPORT_ROLES = {
+    "student",
+    "member",
+    "lecturer",
+    "staff",
+    "project_coordinator",
+    "project_supervisor",
+    "hod",
+    "dean",
+    "deputy_rector",
+    "system_admin",
+    "librarian",
+    "head_library",
+    "external_examiner",
+}
+
 VALID_STUDENT_BLOCK_CODES: dict[str, str] = {
     "A1": "SEMESTER 1 (SEPTEMBER INTAKE)",
     "A2": "SEMESTER 2 (SEPTEMBER INTAKE)",
@@ -119,25 +144,48 @@ def _rows_from_xlsx_bytes(raw: bytes) -> list[dict[str, str]]:
         return []
 
     expected_headers = [
+        "full name",
         "student name",
+        "id number",
         "student id",
+        "email",
         "school email",
         "school",
         "department",
+        "program",
         "certification type",
         "block code",
         "year",
     ]
     lecturer_expected_headers = [
+        "full name",
         "lecturer name",
+        "id number",
         "lecturer id",
+        "email",
         "lecturer email",
-        "adjunct email",
+        "role",
         "school",
         "department",
-        "year",
+        "specialization",
+        "research interests",
+        "max student ceiling",
     ]
-    expected_keys = {_normalize_key(h) for h in expected_headers}
+    library_expected_headers = [
+        "full name",
+        "staff name",
+        "id number",
+        "staff id",
+        "email",
+        "staff email",
+        "role",
+        "school",
+        "department",
+    ]
+    expected_keys = {
+        _normalize_key(h)
+        for h in (expected_headers + lecturer_expected_headers + library_expected_headers)
+    }
 
     def row_values(values: tuple) -> list[str]:
         return [str(cell or "").strip() for cell in values]
@@ -155,7 +203,26 @@ def _rows_from_xlsx_bytes(raw: bytes) -> list[dict[str, str]]:
 
     items: list[dict[str, str]] = []
 
-    # Support template files where row 1 is a banner and data starts directly.
+    # Support legacy template files where row 1 is a banner and data starts directly.
+    legacy_student_headers = [
+        "student name",
+        "student id",
+        "school email",
+        "school",
+        "department",
+        "certification type",
+        "block code",
+        "year",
+    ]
+    legacy_lecturer_headers = [
+        "lecturer name",
+        "lecturer id",
+        "lecturer email",
+        "adjunct email",
+        "school",
+        "department",
+        "year",
+    ]
     first_cell = str((raw_rows[0][0] if raw_rows[0] else "") or "").strip().lower()
     is_student_template_banner = "student bulk upload template" in first_cell
     is_lecturer_template_banner = "lecturer bulk upload template" in first_cell
@@ -164,7 +231,7 @@ def _rows_from_xlsx_bytes(raw: bytes) -> list[dict[str, str]]:
             vals = row_values(row)
             if not any(vals):
                 continue
-            items.append({expected_headers[idx]: vals[idx] if idx < len(vals) else "" for idx in range(len(expected_headers))})
+            items.append({legacy_student_headers[idx]: vals[idx] if idx < len(vals) else "" for idx in range(len(legacy_student_headers))})
         return items
     if not found_header and is_lecturer_template_banner:
         for row in raw_rows[1:]:
@@ -173,8 +240,8 @@ def _rows_from_xlsx_bytes(raw: bytes) -> list[dict[str, str]]:
                 continue
             items.append(
                 {
-                    lecturer_expected_headers[idx]: vals[idx] if idx < len(vals) else ""
-                    for idx in range(len(lecturer_expected_headers))
+                    legacy_lecturer_headers[idx]: vals[idx] if idx < len(vals) else ""
+                    for idx in range(len(legacy_lecturer_headers))
                 }
             )
         return items
@@ -212,14 +279,24 @@ def _upsert_student(
     pending_emails: list[dict[str, str]] | None = None,
     institution=None,
 ) -> tuple[bool, str, bool, bool]:
-    student_id = _map_value(row, ["student id", "student_id", "id"])
-    email = _map_value(row, ["school email", "email", "student email"])
+    full_name = _map_value(row, ["full name", "student name", "name"])
+    student_id = _map_value(row, ["student id", "id number", "student_id", "school id", "school_id", "id"])
+    email = _map_value(row, ["email", "school email", "student email"]).strip().lower()
+    school = _map_value(row, ["school", "faculty", "college"])
+    department = _map_value(row, ["department"])
+    program = _map_value(row, ["program", "programme", "course", "major", "discipline"])
+
+    row_label = student_id or email or full_name or "row"
+    if not full_name:
+        return False, f"{row_label}: missing full name", False, False
     if not student_id:
-        return False, "missing student id", False, False
+        return False, f"{row_label}: missing student id / id number", False, False
     if not email:
-        return False, f"{student_id}: missing school email", False, False
+        return False, f"{student_id}: missing email", False, False
     if not is_allowed_institution_email(email, institution=institution):
-        return False, f"{student_id}: invalid institution email", False, False
+        return False, f"{student_id}: invalid institution email '{email}'", False, False
+    if not school:
+        return False, f"{student_id}: missing school", False, False
 
     certification_type = _map_value(
         row,
@@ -238,27 +315,32 @@ def _upsert_student(
         except ValueError:
             return False, f"{student_id}: invalid year '{year_raw}'", False, False
 
+    inst_id = getattr(institution, "id", None)
+    inst_name = getattr(institution, "name", None) or "Thesis Repository"
+    login_url = _institution_login_url(institution)
+
     existing = db.query(Student).filter(Student.student_id == student_id).first()
     payload = {
         "student_id": student_id,
-        "full_name": _map_value(row, ["student name", "name", "full name"]),
-        "email": email.lower(),
-        "school": _map_value(row, ["school"]),
-        "department": _map_value(row, ["department"]),
-        "program": _map_value(row, ["program", "programme", "course", "major", "discipline"]),
+        "institution_id": inst_id,
+        "full_name": full_name,
+        "email": email,
+        "school": school,
+        "department": department or None,
+        "program": program or None,
         "certification_type": certification_type or None,
         "block_code": block_code or None,
         "year": year,
     }
-    if not payload["full_name"]:
-        return False, f"{student_id}: missing student name", False, False
     if existing:
         for key, value in payload.items():
+            if key == "institution_id" and value is None:
+                continue
             setattr(existing, key, value)
     else:
         db.add(Student(**payload))
 
-    existing_user = get_user_by_email(db, email.lower())
+    existing_user = get_user_by_email(db, email)
     if existing_user:
         if existing_user.school_id and existing_user.school_id != student_id:
             return False, f"{student_id}: email already mapped to another school id", False, False
@@ -278,16 +360,18 @@ def _upsert_student(
         email_data = {
             "to_email": updated_user.email,
             "to_name": updated_user.full_name,
-            "subject": "GIMPA Thesis Management System Account Update Confirmation",
+            "subject": f"{inst_name} Thesis Repository - Student Account Updated",
             "message": (
-                "Your student account details have been updated successfully in the GIMPA Thesis Management System.\n\n"
+                f"Your student account details have been updated successfully in {inst_name} Thesis Repository.\n\n"
                 "Updated details:\n"
                 f"- Email: {updated_user.email}\n"
-                f"- School ID: {updated_user.school_id or student_id}\n\n"
+                f"- Student ID: {updated_user.school_id or student_id}\n\n"
                 "You can log in to your account here:\n"
-                "https://thesis.manamatechnologies.com/login\n\n"
+                f"{login_url}\n\n"
                 "If any of these details are incorrect, please contact your administrator."
             ),
+            "institution_name": inst_name,
+            "portal_url": login_url,
         }
         if pending_emails is not None:
             pending_emails.append(email_data)
@@ -305,7 +389,7 @@ def _upsert_student(
     generated_password = generate_default_password()
     user = create_user(
         db=db,
-        email=email.lower(),
+        email=email,
         role="student",
         school_id=student_id,
         school=payload["school"] or None,
@@ -313,6 +397,7 @@ def _upsert_student(
         full_name=payload["full_name"] or None,
         department=payload["department"] or None,
         must_change_password=True,
+        institution_id=inst_id,
     )
     user.program = payload["program"] or None
     user.is_active = True
@@ -323,18 +408,20 @@ def _upsert_student(
     email_data = {
         "to_email": user.email,
         "to_name": user.full_name,
-        "subject": "Welcome to GIMPA Thesis Management System - Student Account Created",
+        "subject": f"Welcome to {inst_name} Thesis Repository - Student Account Created",
         "message": (
-            "Your student account has been created successfully in GIMPA Thesis Management System.\n\n"
+            f"Your student account has been created successfully in {inst_name} Thesis Repository.\n\n"
             "Account details:\n"
             f"- Email: {user.email}\n"
-            f"- School ID: {user.school_id or student_id}\n"
+            f"- Student ID: {user.school_id or student_id}\n"
             f"- Temporary Password: {generated_password}\n\n"
             "Next steps:\n"
-            "1. Sign in at https://thesis.manamatechnologies.com\n"
+            f"1. Sign in at {login_url}\n"
             "2. Change your temporary password immediately.\n"
             "3. Complete your profile if needed."
         ),
+        "institution_name": inst_name,
+        "portal_url": login_url,
     }
     if pending_emails is not None:
         pending_emails.append(email_data)
@@ -353,23 +440,47 @@ def _upsert_staff_user(
     pending_emails: list[dict[str, str]] | None = None,
     institution=None,
 ) -> tuple[bool, str, bool, bool]:
-    name = _map_value(row, ["lecturer name", "name", "full name"])
-    school_id = _map_value(row, ["lecturer id", "lecture id", "staff id", "school id", "id"])
-    email = _map_value(row, ["lecturer email", "lecture email", "school email", "email"])
+    name = _map_value(row, ["full name", "lecturer name", "staff name", "name"])
+    school_id = _map_value(row, ["id number", "lecturer id", "lecture id", "staff id", "school id", "school_id", "id"])
+    email = _map_value(row, ["email", "lecturer email", "lecture email", "staff email", "school email"]).strip().lower()
+    school = _map_value(row, ["school", "faculty", "college"])
+    department = _map_value(row, ["department", "unit"])
+
+    row_label = email or name or school_id or "row"
+    if not name:
+        return False, f"{row_label}: missing full name", False, False
     if not email:
-        return False, "missing email", False, False
-    if not is_allowed_institution_email(email, institution=institution):
-        return False, f"{email}: invalid institution email", False, False
+        return False, f"{row_label}: missing email", False, False
 
     role_value = _map_value(row, ["role", "roles"]) or default_role
     roles = [item.strip().lower() for item in role_value.split("|") if item.strip()]
     if not roles:
         roles = [default_role]
+    invalid_roles = [r for r in roles if r not in VALID_IMPORT_ROLES]
+    if invalid_roles:
+        return False, f"{email}: invalid role(s) '{', '.join(invalid_roles)}'", False, False
+
+    primary_role = roles[0]
+    if primary_role != "external_examiner" and not is_allowed_institution_email(email, institution=institution):
+        return False, f"{email}: invalid institution email", False, False
+
+    if primary_role in {"lecturer", "project_supervisor", "staff", "project_coordinator", "hod"}:
+        if not school:
+            return False, f"{email}: missing school (required for {primary_role})", False, False
+        if not department:
+            return False, f"{email}: missing department (required for {primary_role})", False, False
+    elif primary_role == "dean":
+        if not school:
+            return False, f"{email}: missing school (required for dean)", False, False
 
     specialization = _map_value(row, ["specialization", "domain", "research specialization"])
     research_interests = _map_value(row, ["research interests", "research_interests", "interests", "keywords", "topics"])
     ceiling_str = _map_value(row, ["max student ceiling", "ceiling", "max students", "capacity", "quota", "student ceiling"])
     max_student_ceiling = int(ceiling_str) if ceiling_str.isdigit() and int(ceiling_str) > 0 else 5
+
+    inst_id = getattr(institution, "id", None)
+    inst_name = getattr(institution, "name", None) or "Thesis Repository"
+    login_url = _institution_login_url(institution)
 
     existing = get_user_by_email(db, email)
     if existing:
@@ -379,8 +490,8 @@ def _upsert_staff_user(
             UserUpdate(
                 full_name=name or existing.full_name,
                 school_id=school_id or existing.school_id,
-                school=_map_value(row, ["school"]) or existing.school,
-                department=_map_value(row, ["department"]) or existing.department,
+                school=school or existing.school,
+                department=department or existing.department,
                 specialization=specialization or existing.specialization,
                 research_interests=research_interests or existing.research_interests,
                 max_student_ceiling=max_student_ceiling if ceiling_str else existing.max_student_ceiling,
@@ -392,20 +503,21 @@ def _upsert_staff_user(
         return True, email, False, False
 
     if school_id and get_user_by_school_id(db, school_id):
-        return False, f"{email}: school_id already in use", False, False
+        return False, f"{email}: id number '{school_id}' already in use", False, False
 
     generated_password = generate_default_password()
 
     user = create_user(
         db=db,
         email=email,
-        role=roles[0],
+        role=primary_role,
         school_id=school_id or None,
-        school=_map_value(row, ["school"]) or None,
+        school=school or None,
         password=generated_password,
         full_name=name or None,
-        department=_map_value(row, ["department"]) or None,
+        department=department or None,
         must_change_password=True,
+        institution_id=inst_id,
     )
     user.specialization = specialization or ""
     user.research_interests = research_interests or ""
@@ -420,17 +532,19 @@ def _upsert_staff_user(
     email_data = {
         "to_email": user.email,
         "to_name": user.full_name,
-        "subject": "Welcome to GIMPA Thesis Management System - Account Created",
+        "subject": f"Welcome to {inst_name} Thesis Repository - Account Created",
         "message": (
-            "Your account has been created successfully in GIMPA Thesis Management System.\n\n"
+            f"Your account has been created successfully in {inst_name} Thesis Repository.\n\n"
             "Account details:\n"
             f"- Email: {user.email}\n"
             f"- Temporary Password: {generated_password}\n\n"
             "Next steps:\n"
-            "1. Sign in to your account.\n"
+            f"1. Sign in at {login_url}\n"
             "2. Change your temporary password immediately.\n"
             "3. Review your assigned role and profile information."
         ),
+        "institution_name": inst_name,
+        "portal_url": login_url,
     }
     if pending_emails is not None:
         pending_emails.append(email_data)

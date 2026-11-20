@@ -38,10 +38,15 @@ from app.models.department import Department
 from app.models.institution import Institution
 from app.models.paper import Paper
 from app.models.user_role import UserRole as UserRoleModel
-from app.services.import_service import import_staff_accounts, import_students, load_rows_from_upload
+from app.services.import_service import (
+    generate_default_password,
+    import_staff_accounts,
+    import_students,
+    is_valid_student_block_code,
+    load_rows_from_upload,
+)
 from app.services.email_service import send_batch_emails, send_notification_email
 from app.services.notification_service import create_notification, get_notification, list_notifications, mark_notification_read
-from app.services.import_service import generate_default_password
 from app.services.user_service import (
     admin_reset_password,
     assign_role,
@@ -378,6 +383,13 @@ def admin_create_user(
         if payload.school_id and get_user_by_school_id(db, payload.school_id):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="School ID already registered")
 
+    block_code_clean = (payload.block_code or "").strip().upper() or None
+    if block_code_clean and not is_valid_student_block_code(block_code_clean):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid block code '{block_code_clean}' (e.g. A1, A2, A5, F1, T1)",
+        )
+
     temporary_password = generate_default_password()
     try:
         created = create_user(
@@ -393,6 +405,8 @@ def admin_create_user(
             institution_id=current_admin.institution_id,
         )
         created.is_active = True
+        if getattr(payload, "program", None):
+            created.program = payload.program.strip()
         if getattr(payload, "specialization", None):
             created.specialization = payload.specialization.strip()
         if getattr(payload, "research_interests", None):
@@ -400,6 +414,27 @@ def admin_create_user(
         if getattr(payload, "max_student_ceiling", None):
             created.max_student_ceiling = max(1, int(payload.max_student_ceiling))
         db.add(created)
+
+        if payload.role in {"student", "member"} and payload.school_id:
+            existing_student = db.query(Student).filter(Student.student_id == payload.school_id.strip()).first()
+            student_fields = {
+                "student_id": payload.school_id.strip(),
+                "institution_id": current_admin.institution_id,
+                "full_name": (payload.full_name or created.email).strip(),
+                "email": created.email.lower(),
+                "school": (payload.school or "").strip() or None,
+                "department": (payload.department or "").strip() or None,
+                "program": (payload.program or "").strip() or None,
+                "certification_type": (payload.certification_type or "").strip() or None,
+                "block_code": block_code_clean,
+                "year": payload.year,
+            }
+            if existing_student:
+                for k, v in student_fields.items():
+                    setattr(existing_student, k, v)
+            else:
+                db.add(Student(**student_fields))
+
         db.commit()
         db.refresh(created)
     except ValueError as exc:

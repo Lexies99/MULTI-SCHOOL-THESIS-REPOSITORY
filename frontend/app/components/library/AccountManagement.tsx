@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { useAuth } from '../../context/AuthContext'
+import { useTenant } from '../../context/TenantContext'
 import {
   getValidAccessToken,
   apiImportAccounts,
@@ -188,6 +189,7 @@ function normalizeText(value: string | null | undefined): string {
 
 export function AccountManagement() {
   const { user } = useAuth()
+  const { tenant } = useTenant()
   const hasRole = (role: ApiUserRole) => !!user && (user.role === role || (user.roles || []).includes(role))
   const canManageAccounts = hasRole('system_admin') || hasRole('deputy_rector')
   const canBatchAssignExaminers = hasRole('hod') || hasRole('project_coordinator') || hasRole('system_admin') || hasRole('deputy_rector')
@@ -235,6 +237,7 @@ export function AccountManagement() {
     school_id: '',
     school: '',
     department: '',
+    program: '',
     specialization: '',
     research_interests: '',
     max_student_ceiling: 5,
@@ -737,6 +740,7 @@ export function AccountManagement() {
       school_id: '',
       school: '',
       department: '',
+      program: '',
       certification_type: 'Undergraduate',
       block_code: 'A1',
       year: String(new Date().getFullYear()),
@@ -766,15 +770,23 @@ export function AccountManagement() {
       return
     }
 
-    const needsSchoolAndId = createForm.role === 'student' || createForm.role === 'member'
-    const needsDepartment = ['lecturer', 'staff', 'project_coordinator', 'hod'].includes(createForm.role)
-    if (needsSchoolAndId && (!createForm.school.trim() || !createForm.school_id.trim())) {
-      setCreateMessage('School and School ID are required for students.')
+    const isStudentRole = createForm.role === 'student' || createForm.role === 'member'
+    const needsSchoolAndDepartment = ['lecturer', 'project_supervisor', 'staff', 'project_coordinator', 'hod'].includes(createForm.role)
+    const isDeanRole = createForm.role === 'dean'
+    const isAcademicStaffRole = needsSchoolAndDepartment || isDeanRole
+
+    if (isStudentRole && (!createForm.school.trim() || !createForm.school_id.trim())) {
+      setCreateMessage('School and Student ID are required for students.')
       setCreateBusy(false)
       return
     }
-    if (needsDepartment && (!createForm.school.trim() || !createForm.department.trim())) {
+    if (needsSchoolAndDepartment && (!createForm.school.trim() || !createForm.department.trim())) {
       setCreateMessage('School and Department are required for this role.')
+      setCreateBusy(false)
+      return
+    }
+    if (isDeanRole && !createForm.school.trim()) {
+      setCreateMessage('School is required for Dean.')
       setCreateBusy(false)
       return
     }
@@ -787,12 +799,13 @@ export function AccountManagement() {
         school_id: createForm.school_id.trim() || undefined,
         school: createForm.school.trim() || undefined,
         department: createForm.department.trim() || undefined,
-        certification_type: createForm.certification_type.trim() || undefined,
-        block_code: createForm.block_code.trim() || undefined,
-        year: createForm.year ? Number(createForm.year) : undefined,
-        specialization: createForm.specialization.trim() || undefined,
-        research_interests: createForm.research_interests.trim() || undefined,
-        max_student_ceiling: Number(createForm.max_student_ceiling) || 5,
+        program: isStudentRole ? (createForm.program.trim() || undefined) : undefined,
+        certification_type: isStudentRole ? (createForm.certification_type.trim() || undefined) : undefined,
+        block_code: isStudentRole ? (createForm.block_code.trim().toUpperCase() || undefined) : undefined,
+        year: isStudentRole && createForm.year ? Number(createForm.year) : undefined,
+        specialization: isAcademicStaffRole ? (createForm.specialization.trim() || undefined) : undefined,
+        research_interests: isAcademicStaffRole ? (createForm.research_interests.trim() || undefined) : undefined,
+        max_student_ceiling: isAcademicStaffRole ? (Number(createForm.max_student_ceiling) || 5) : undefined,
       }
       const result = isHodOrCoordOnly
         ? await apiCreateExternalExaminer(payload, accessToken)
@@ -1270,10 +1283,10 @@ export function AccountManagement() {
                 </div>
                 <div>
                   <div className="text-[15px] font-semibold text-[#1a1d1a]">
-                    GIMPA Institutional Repository
+                    {tenant?.name || 'Institutional Thesis Repository'}
                   </div>
                   <div className="text-[12px] text-[#6e766b]">
-                    4 Academic Faculties · Digital Archive
+                    {effectiveSchoolOptions.length} Academic School{effectiveSchoolOptions.length === 1 ? '' : 's'} · {departments.length} Department{departments.length === 1 ? '' : 's'}
                   </div>
                 </div>
               </div>
@@ -1790,10 +1803,10 @@ export function AccountManagement() {
             <div className="fp-card space-y-5">
               <div>
                 <h3 className="text-[18px] font-bold text-[#1a1d1a]">
-                  Bulk Data Upload (Students & Lecturers)
+                  Bulk Data Upload (Students, Lecturers & Library Staff)
                 </h3>
                 <p className="text-[13px] text-[#6e766b] mt-1">
-                  Upload CSV/XLSX files to bulk create or update students, lecturers, and library staff.
+                  Upload CSV or Excel (.xlsx) files to bulk create or update accounts. Columns match the exact same fields as <strong>+ Add user</strong>.
                 </p>
               </div>
 
@@ -1812,6 +1825,26 @@ export function AccountManagement() {
                 >
                   <Download className="size-3.5" /> Lecturers (.xlsx)
                 </a>
+                <a
+                  href="/templates/library_staff_template.xlsx"
+                  download="library_staff_template.xlsx"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#dcdfd6] text-xs font-medium text-[#1a1d1a] hover:bg-[#f0f4ea]"
+                >
+                  <Download className="size-3.5" /> Library Staff (.xlsx)
+                </a>
+              </div>
+
+              <div className="rounded-xl bg-[#fafbf8] border border-[#eaece4] p-3.5 text-[11.5px] text-[#4a5248] space-y-2">
+                <p className="font-bold text-[#1a1d1a] text-[12px]">Column Requirements (matches Add User)</p>
+                <p>
+                  <strong>Students:</strong> Required — <code>Full Name</code>, <code>Student ID</code>, <code>Email</code>, <code>School</code>. Optional — <code>Department</code>, <code>Program</code>, <code>Certification Type</code>, <code>Block Code</code>, <code>Year</code>.
+                </p>
+                <p>
+                  <strong>Lecturers / Academic Staff:</strong> Required — <code>Full Name</code>, <code>Email</code>, <code>School</code>, <code>Department</code>. Optional — <code>ID Number</code>, <code>Role</code> (defaults to <code>lecturer</code>), <code>Specialization</code>, <code>Research Interests</code>, <code>Max Student Ceiling</code> (default 5).
+                </p>
+                <p>
+                  <strong>Library Staff:</strong> Required — <code>Full Name</code>, <code>Email</code>. Optional — <code>ID Number</code>, <code>Role</code> (<code>librarian</code> or <code>head_library</code>, defaults to <code>librarian</code>), <code>School</code>, <code>Department</code>.
+                </p>
               </div>
 
               <form onSubmit={handleBulkImport} className="space-y-4">
@@ -1823,6 +1856,38 @@ export function AccountManagement() {
                 </Button>
                 {bulkUploadMessage && <p className="text-xs font-semibold text-[#3b7a57]">{bulkUploadMessage}</p>}
               </form>
+
+              {bulkSummary && (
+                <div className="rounded-xl bg-white border border-[#eaece4] p-4 space-y-3 text-xs">
+                  <p className="font-bold text-[#1a1d1a]">Import Summary</p>
+                  {([
+                    ['Students', bulkSummary.students],
+                    ['Lecturers', bulkSummary.lecturers],
+                    ['Library Staff', bulkSummary.library],
+                  ] as const).map(([label, unit]) =>
+                    unit ? (
+                      <div key={label} className="space-y-1 border-t border-[#eaece4] pt-2 first:border-t-0 first:pt-0">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-[#1a1d1a]">{label}</span>
+                          <span className="text-[#3b7a57] font-semibold">
+                            {unit.imported_or_updated} imported/updated · {unit.emailed_sent} email(s) queued
+                          </span>
+                        </div>
+                        {unit.errors && unit.errors.length > 0 && (
+                          <ul className="list-disc pl-4 text-[#c93b2b] space-y-0.5">
+                            {unit.errors.slice(0, 10).map((err, i) => (
+                              <li key={i}>{err}</li>
+                            ))}
+                            {unit.errors.length > 10 && (
+                              <li>...and {unit.errors.length - 10} more error(s)</li>
+                            )}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1978,7 +2043,7 @@ export function AccountManagement() {
           ) : (
             <div className="space-y-4 pt-2">
               <div>
-                <Label htmlFor="create-full-name">Full name</Label>
+                <Label htmlFor="create-full-name">Full name *</Label>
                 <Input
                   id="create-full-name"
                   value={createForm.full_name}
@@ -1987,18 +2052,18 @@ export function AccountManagement() {
                 />
               </div>
               <div>
-                <Label htmlFor="create-email">Email address</Label>
+                <Label htmlFor="create-email">Email address *</Label>
                 <Input
                   id="create-email"
                   type="email"
                   value={createForm.email}
                   onChange={(e) => setCreateForm((prev) => ({ ...prev, email: e.target.value }))}
-                  placeholder="name@gimpa.edu.gh"
+                  placeholder={`name@${(tenant?.allowed_email_domains || 'institution.edu').split(',')[0].trim()}`}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Role</Label>
+                  <Label>Role *</Label>
                   <Select
                     value={createForm.role}
                     onValueChange={(value) => setCreateForm((prev) => ({ ...prev, role: value as ApiUserRole }))}
@@ -2028,53 +2093,200 @@ export function AccountManagement() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="create-school-id">ID Number</Label>
+                  <Label htmlFor="create-school-id">
+                    {createForm.role === 'student' || createForm.role === 'member'
+                      ? 'Student ID *'
+                      : 'ID Number (optional)'}
+                  </Label>
                   <Input
                     id="create-school-id"
                     value={createForm.school_id}
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, school_id: e.target.value }))}
-                    placeholder="e.g. 22001122"
+                    placeholder={createForm.role === 'student' || createForm.role === 'member' ? 'e.g. 22001122' : 'e.g. STF-1021'}
                   />
                 </div>
               </div>
 
-              {(createForm.role === 'student' || createForm.role === 'lecturer') && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>School</Label>
-                    <Select
-                      value={createForm.school}
-                      onValueChange={(value) => setCreateForm((prev) => ({ ...prev, school: value, department: '' }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select school" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {effectiveSchoolOptions.map((school) => (
-                          <SelectItem key={school.id} value={school.label}>{school.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Department</Label>
-                    <Select
-                      value={createForm.department}
-                      onValueChange={(value) => setCreateForm((prev) => ({ ...prev, department: value }))}
-                      disabled={!createForm.school}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select department" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getDepartmentsForSchool(createForm.school, departments).map((dept) => (
-                          <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
+              {/* School & Department (matches Bulk Upload requirements per role) */}
+              {['student', 'member', 'lecturer', 'project_supervisor', 'project_coordinator', 'hod', 'dean', 'staff', 'librarian', 'head_library'].includes(createForm.role) && (() => {
+                const isStudentRole = createForm.role === 'student' || createForm.role === 'member'
+                const isLibraryRole = createForm.role === 'librarian' || createForm.role === 'head_library'
+                const isDeanRole = createForm.role === 'dean'
+                const schoolRequired = !isLibraryRole
+                const deptRequired = ['lecturer', 'project_supervisor', 'project_coordinator', 'hod', 'staff'].includes(createForm.role)
+                const deptOptions = getDepartmentsForSchool(createForm.school, departments)
+                const matchedDeptObj = departments.find((d) => d.name === createForm.department)
+                const programOptions = matchedDeptObj?.programs || []
+
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>School / Faculty {schoolRequired ? '*' : '(optional)'}</Label>
+                        {effectiveSchoolOptions.length > 0 ? (
+                          <Select
+                            value={createForm.school}
+                            onValueChange={(value) => setCreateForm((prev) => ({ ...prev, school: value, department: '', program: '' }))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select school" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {effectiveSchoolOptions.map((school) => (
+                                <SelectItem key={school.id} value={school.label}>{school.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            value={createForm.school}
+                            onChange={(e) => setCreateForm((prev) => ({ ...prev, school: e.target.value }))}
+                            placeholder={isLibraryRole ? 'e.g. Main Library' : 'e.g. School of Science'}
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <Label>Department {deptRequired ? '*' : '(optional)'}</Label>
+                        {deptOptions.length > 0 && !isLibraryRole ? (
+                          <Select
+                            value={createForm.department}
+                            onValueChange={(value) => setCreateForm((prev) => ({ ...prev, department: value, program: '' }))}
+                            disabled={effectiveSchoolOptions.length > 0 && !createForm.school}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={isDeanRole ? 'Optional for Dean' : 'Select department'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {deptOptions.map((dept) => (
+                                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            value={createForm.department}
+                            onChange={(e) => setCreateForm((prev) => ({ ...prev, department: e.target.value }))}
+                            placeholder={isLibraryRole ? 'e.g. Digital Archive' : 'Department name'}
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Student-specific fields matching Students Bulk Upload */}
+                    {isStudentRole && (
+                      <div className="p-3.5 rounded-xl bg-[#fafbf8] border border-[#eaece4] space-y-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-[#6e766b]">Student Academic Details</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label htmlFor="create-program">Program (optional)</Label>
+                            {programOptions.length > 0 ? (
+                              <Select
+                                value={createForm.program}
+                                onValueChange={(value) => setCreateForm((prev) => ({ ...prev, program: value }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select program" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {programOptions.map((prog) => (
+                                    <SelectItem key={prog} value={prog}>{prog}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                id="create-program"
+                                value={createForm.program}
+                                onChange={(e) => setCreateForm((prev) => ({ ...prev, program: e.target.value }))}
+                                placeholder="e.g. BSc Computer Science"
+                              />
+                            )}
+                          </div>
+                          <div>
+                            <Label>Certification Type</Label>
+                            <Select
+                              value={createForm.certification_type}
+                              onValueChange={(value) => setCreateForm((prev) => ({ ...prev, certification_type: value }))}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select level" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Undergraduate">Undergraduate</SelectItem>
+                                <SelectItem value="Masters">Masters</SelectItem>
+                                <SelectItem value="PhD">PhD</SelectItem>
+                                <SelectItem value="Diploma">Diploma</SelectItem>
+                                <SelectItem value="Degree">Degree</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label htmlFor="create-block-code">Block Code</Label>
+                            <Input
+                              id="create-block-code"
+                              value={createForm.block_code}
+                              onChange={(e) => setCreateForm((prev) => ({ ...prev, block_code: e.target.value.toUpperCase() }))}
+                              placeholder="e.g. A1, A5, F1"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="create-year">Academic Year</Label>
+                            <Input
+                              id="create-year"
+                              type="number"
+                              min={2000}
+                              max={2100}
+                              value={createForm.year}
+                              onChange={(e) => setCreateForm((prev) => ({ ...prev, year: e.target.value }))}
+                              placeholder="e.g. 2026"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Lecturer / Academic Staff fields matching Lecturers Bulk Upload */}
+                    {['lecturer', 'project_supervisor', 'project_coordinator', 'hod', 'dean', 'staff'].includes(createForm.role) && (
+                      <div className="p-3.5 rounded-xl bg-[#fafbf8] border border-[#eaece4] space-y-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-[#6e766b]">Academic & Supervision Details (optional)</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label htmlFor="create-specialization">Specialization</Label>
+                            <Input
+                              id="create-specialization"
+                              value={createForm.specialization}
+                              onChange={(e) => setCreateForm((prev) => ({ ...prev, specialization: e.target.value }))}
+                              placeholder="e.g. Data Science, Public Policy"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="create-ceiling">Max Student Ceiling</Label>
+                            <Input
+                              id="create-ceiling"
+                              type="number"
+                              min={1}
+                              max={50}
+                              value={createForm.max_student_ceiling}
+                              onChange={(e) => setCreateForm((prev) => ({ ...prev, max_student_ceiling: Number(e.target.value) || 5 }))}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label htmlFor="create-research-interests">Research Interests</Label>
+                          <Input
+                            id="create-research-interests"
+                            value={createForm.research_interests}
+                            onChange={(e) => setCreateForm((prev) => ({ ...prev, research_interests: e.target.value }))}
+                            placeholder="e.g. Machine Learning, Cybersecurity, Governance"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
 
               {createMessage && (
                 <p className="text-xs text-[#c93b2b] font-medium">{createMessage}</p>

@@ -1,4 +1,4 @@
-﻿Lecturer Name,Lecturer ID,Lecturer Email,Adjunct Email,School,Department,Year
-Dr. Abena Osei,STF-9021,abena.osei@gimpa.edu.gh,,School of Technology and Social Sciences,Computer Science,2026
-Prof. Emmanuel Quaye,STF-9022,emmanuel.quaye@gimpa.edu.gh,,Business School,Management and Marketing,2026
-Dr. Grace Addo,STF-9023,grace.addo@gimpa.edu.gh,,School of Public Service and Governance,Public Administration,2026
+Full Name,Email,School,Department,ID Number,Role,Specialization,Research Interests,Max Student Ceiling
+Dr. Abena Osei,abena.osei@gimpa.edu.gh,School of Technology and Social Sciences (SOTSS),Computer Science and Information Systems,STF-9021,lecturer,Artificial Intelligence,"Machine Learning, NLP",6
+Prof. Emmanuel Quaye,emmanuel.quaye@gimpa.edu.gh,GIMPA Business School,Business Management,STF-9022,lecturer|project_supervisor,Corporate Finance,"FinTech, Risk Management",8
+Dr. Grace Addo,grace.addo@gimpa.edu.gh,School of Public Service and Governance,Public Management & International Relations,STF-9023,lecturer,Public Policy,"Governance, E-Government",5

@@ -78,6 +78,7 @@ export interface ApiAdminCreateUserPayload {
   school_id?: string
   school?: string
   department?: string
+  program?: string
   certification_type?: string
   block_code?: string
   year?: number
