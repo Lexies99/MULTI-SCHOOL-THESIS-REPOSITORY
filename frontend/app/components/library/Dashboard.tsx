@@ -295,12 +295,20 @@ function StudentPaperWorkflow({ paper, token, onUpdate }: StudentPaperWorkflowPr
 
 interface DashboardProps {
   userRole: string
+  onNavigateTab?: (tab: string) => void
 }
 
-export function Dashboard({ userRole }: DashboardProps) {
+export function Dashboard({ userRole, onNavigateTab }: DashboardProps) {
   const { user } = useAuth()
   const { tenantPath } = useTenant()
   const navigate = useNavigate()
+  const openTab = (tab: string) => {
+    if (onNavigateTab) {
+      onNavigateTab(tab)
+    } else {
+      navigate(`${tenantPath('')}?tab=${encodeURIComponent(tab)}`)
+    }
+  }
   const userRoles = (user?.roles || []) as string[]
   const hasRole = (r: string) => userRole === r || userRoles.includes(r)
 
@@ -630,6 +638,7 @@ export function Dashboard({ userRole }: DashboardProps) {
       author: string
       tag: string
       darkTag: boolean
+      onClick: () => void
     }> = []
 
     myPapers.slice(0, 5).forEach((p) => {
@@ -643,6 +652,7 @@ export function Dashboard({ userRole }: DashboardProps) {
         author: isPureStudent ? p.title : (p.authors?.[0]?.name || user?.name || 'Scholar'),
         tag: p.status.replace(/^phase\d_/, '').replace(/_/g, ' '),
         darkTag: p.status.includes('combined') || p.status.includes('examination'),
+        onClick: () => openTab('submissions'),
       })
     })
 
@@ -658,13 +668,41 @@ export function Dashboard({ userRole }: DashboardProps) {
             author: o.student_name,
             tag: 'Overdue',
             darkTag: true,
+            onClick: () => openTab('approval'),
           })
         }
       })
     }
 
+    if (!isPureStudent && pipelineMetrics && items.length < 5) {
+      const pipelinePhases: ApiPipelinePhaseKey[] = [
+        'phase1_proposals',
+        'phase2_allocation',
+        'phase3_chapters',
+        'phase4_examination',
+        'phase5_signoff',
+      ]
+      for (const phaseKey of pipelinePhases) {
+        const phaseStudents = pipelineMetrics[phaseKey]?.students || []
+        for (const st of phaseStudents) {
+          if (items.length >= 5) break
+          if (items.some((existing) => existing.metric === `#${st.paper_id}`)) continue
+          items.push({
+            date: st.program ? st.program.slice(0, 12) : 'Active',
+            metric: `#${st.paper_id}`,
+            isNegative: st.status.includes('rejected') || st.status.includes('corrections'),
+            author: st.student_name || st.title,
+            tag: st.status.replace(/^phase\d_/, '').replace(/_/g, ' '),
+            darkTag: st.status.includes('examination') || st.status.includes('combined'),
+            onClick: () => openTab('approval'),
+          })
+        }
+        if (items.length >= 5) break
+      }
+    }
+
     return items.slice(0, 5)
-  }, [myPapers, overdueList, user?.name, isPureStudent, canViewSla])
+  }, [myPapers, overdueList, pipelineMetrics, user?.name, isPureStudent, canViewSla])
 
   useEffect(() => {
     if (activeSubTab === 'reporting' && !canViewReporting) setActiveSubTab('welcome')
@@ -691,7 +729,7 @@ export function Dashboard({ userRole }: DashboardProps) {
     {
       icon: FileText,
       label: 'My Thesis Submissions',
-      onClick: () => navigate(`${tenantPath('/')}?tab=submissions`),
+      onClick: () => openTab('submissions'),
       show: true,
     },
     {
@@ -703,19 +741,19 @@ export function Dashboard({ userRole }: DashboardProps) {
     {
       icon: TrendingUp,
       label: 'Review & Approval Queue',
-      onClick: () => navigate(`${tenantPath('/')}?tab=approval`),
+      onClick: () => openTab('approval'),
       show: canReviewQueue,
     },
     {
       icon: BookOpen,
       label: 'Public Thesis Catalog',
-      onClick: () => navigate(`${tenantPath('/')}?tab=catalog`),
+      onClick: () => openTab('catalog'),
       show: true,
     },
     {
       icon: User,
       label: 'My Profile & Account',
-      onClick: () => navigate(`${tenantPath('/')}?tab=profile`),
+      onClick: () => openTab('profile'),
       show: true,
     },
   ].filter((item) => item.show)
@@ -925,9 +963,14 @@ export function Dashboard({ userRole }: DashboardProps) {
                   )}
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-2">
                   {recentActivityRows.map((row, idx) => (
-                    <div key={idx} className="grid grid-cols-4 items-center gap-2 text-[13px]">
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={row.onClick}
+                      className="w-full grid grid-cols-4 items-center gap-2 text-[13px] text-left px-2 py-2 -mx-2 rounded-lg hover:bg-[#f0f4ea] transition-colors cursor-pointer"
+                    >
                       <span className="text-[#1a1d1a]">{row.date}</span>
                       <span className={`font-semibold ${row.isNegative ? 'text-[#c93b2b]' : 'text-[#3b7a57]'}`}>
                         {row.metric}
@@ -944,7 +987,7 @@ export function Dashboard({ userRole }: DashboardProps) {
                           {row.tag}
                         </span>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -1179,7 +1222,7 @@ export function Dashboard({ userRole }: DashboardProps) {
                       </p>
                       <button
                         type="button"
-                        onClick={() => navigate(tenantPath('/?tab=approval'))}
+                        onClick={() => openTab('approval')}
                         className="text-[14px] font-bold text-white flex items-center gap-1.5 hover:underline cursor-pointer text-left"
                       >
                         <span>{act.phase_label || 'Thesis Milestone Updated'}</span>
@@ -1309,7 +1352,7 @@ export function Dashboard({ userRole }: DashboardProps) {
                       <Badge variant="default">{st.status.replace(/_/g, ' ')}</Badge>
                     </td>
                     <td className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => navigate(tenantPath('/?tab=approval'))}>
+                      <Button size="sm" variant="outline" onClick={() => openTab('approval')}>
                         Inspect
                       </Button>
                     </td>
@@ -1553,7 +1596,7 @@ export function Dashboard({ userRole }: DashboardProps) {
                       </Badge>
                     </td>
                     <td className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => navigate(tenantPath('/?tab=approval'))}>
+                      <Button size="sm" variant="outline" onClick={() => openTab('approval')}>
                         Inspect
                       </Button>
                     </td>

@@ -158,13 +158,6 @@ export default function LoginPage() {
 
         <div className="text-[12px] opacity-80 font-medium hidden lg:flex items-center justify-between">
           <span>{brandFull} · Digital Thesis Archive</span>
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            style={{ background: 'none', border: 'none', color: 'inherit', textDecoration: 'underline', fontSize: 12, cursor: 'pointer' }}
-          >
-            All Schools
-          </button>
         </div>
       </div>
 
@@ -264,20 +257,6 @@ export default function LoginPage() {
               className="w-full h-10 rounded-lg text-[13px] font-medium btn-fp-outline"
             >
               Continue as Guest
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate(tenantPath('/signup'))}
-              style={{ fontSize: 12.5, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
-            >
-              {brandShort} Academic Staff? Request an account →
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              style={{ fontSize: 12, color: 'var(--fp-olive)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-            >
-              ← Switch Institution or Register New School
             </button>
           </div>
         </div>

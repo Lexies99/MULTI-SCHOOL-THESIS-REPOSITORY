@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import type { Route } from "./+types/home";
 import { PublicCatalog } from '../components/library/PublicCatalog';
 import { LibraryStats } from '../components/library/LibraryStats';
@@ -47,14 +47,13 @@ export function meta({}: Route.MetaArgs) {
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAuthenticated, logout } = useAuth();
   const { tenant, tenantSlug, loading: tenantLoading, error: tenantError, theme, toggleTheme, tenantPath } = useTenant();
   const [activeTab, setActiveTab] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get('tab');
-      if (tab) return tab;
-    }
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab) return tab;
     return 'catalog';
   });
   const [overdueCount, setOverdueCount] = useState(0);
@@ -62,14 +61,12 @@ export default function Home() {
   const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get('tab');
-      if (tab && tab !== activeTab) {
-        setActiveTab(tab);
-      }
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab && tab !== activeTab) {
+      setActiveTab(tab);
     }
-  }, []);
+  }, [location.search]);
 
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState<boolean>(false);
@@ -138,11 +135,7 @@ export default function Home() {
     if (tab === 'approval' && !isReviewer) return;
     if (tab === 'branding' && !isAdminAreaUser) return;
     setActiveTab(tab);
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', tab);
-      window.history.replaceState({}, '', url.toString());
-    }
+    navigate(`${tenantPath('')}?tab=${encodeURIComponent(tab)}`, { replace: true });
   };
 
   useEffect(() => {
@@ -747,7 +740,7 @@ export default function Home() {
           {activeTab === 'catalog'   && <PublicCatalog />}
           {activeTab === 'search'    && <SearchDiscovery />}
           {activeTab === 'dashboard' && isAuthenticated && user?.role !== 'guest' && (
-            <Dashboard userRole={user?.role || 'student'} />
+            <Dashboard userRole={user?.role || 'student'} onNavigateTab={handleTabChange} />
           )}
           {activeTab === 'submissions' && canAccessMySubmissions && <MyThesisSubmissions />}
           {activeTab === 'phd' && canViewPhdHub && <PhdHub />}
