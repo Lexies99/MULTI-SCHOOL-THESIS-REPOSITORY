@@ -35,8 +35,10 @@ from app.services.notification_service import create_notification
 from app.services.email_service import send_notification_email
 from app.services.paper_service import (
     create_paper,
+    get_active_student_submission,
     get_paper,
     get_paper_stats,
+    get_submission_eligibility,
     increment_download,
     increment_view,
     list_papers,
@@ -1475,7 +1477,16 @@ def read_my_papers(
         limit=200,
         created_by_id=current_user.id,
     )
-    return [_to_paper_read(p) for p in papers]
+    return [_to_paper_read(p, db=db, current_user=current_user) for p in papers]
+
+
+@router.get("/papers/submission-eligibility")
+def read_submission_eligibility(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    """Check whether the authenticated student can start a new thesis submission (1 active at a time)."""
+    return get_submission_eligibility(db, current_user)
 
 
 from fastapi import Request
@@ -1504,6 +1515,16 @@ def create_paper_endpoint(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only students and lecturers can submit papers.",
+        )
+    # Enforce one active submission at a time for students
+    active_submission = get_active_student_submission(db, current_user)
+    if active_submission is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"You already have an active thesis submission ('{active_submission.title}', "
+                f"status: {active_submission.status}). Complete your current submission before starting a new one."
+            ),
         )
     # Duplicate topic prevention
     from app.services.integrity_service import check_duplicate_topic
@@ -1608,6 +1629,16 @@ async def upload_paper_endpoint(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only students and lecturers can submit papers.",
+        )
+    # Enforce one active submission at a time for students
+    active_submission = get_active_student_submission(db, current_user)
+    if active_submission is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"You already have an active thesis submission ('{active_submission.title}', "
+                f"status: {active_submission.status}). Complete your current submission before starting a new one."
+            ),
         )
     # Duplicate topic prevention
     from app.services.integrity_service import check_duplicate_topic

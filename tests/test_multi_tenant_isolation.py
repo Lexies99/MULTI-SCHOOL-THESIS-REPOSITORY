@@ -377,6 +377,77 @@ class MultiTenantSaaSSecurityTests(unittest.TestCase):
         blocked_me = self.client.get("/api/me", headers=self._auth_headers(a_token, "knust-gh"))
         self.assertEqual(blocked_me.status_code, 403)
 
+        # J) Reactivate School A and test student single-active-submission enforcement & next-degree unlock
+        react = self.client.patch(
+            f"/api/platform/institutions/{school_a['id']}/status",
+            json={"status": "approved", "is_active": True},
+            headers=self._auth_headers(op_token),
+        )
+        self.assertEqual(react.status_code, 200)
+
+        # Student A currently has 1 active submission (paper_a_id) -> eligibility must be False and second upload rejected (409)
+        elig_locked = self.client.get(
+            "/api/papers/submission-eligibility",
+            headers=self._auth_headers(stu_a_token, "knust-gh"),
+        )
+        self.assertEqual(elig_locked.status_code, 200)
+        self.assertFalse(elig_locked.json()["can_submit_new"])
+        self.assertEqual(elig_locked.json()["active_submission"]["id"], paper_a_id)
+
+        second_blocked = self.client.post(
+            "/api/papers/upload",
+            data={
+                "title": "Second Concurrent Thesis Attempt",
+                "abstract": " ".join(["study"] * 160),
+                "discipline": "Computer Engineering",
+                "university": "KNUST",
+                "year": "2026",
+            },
+            files={"file": ("second.pdf", io.BytesIO(b"%PDF-1.4 SECOND"), "application/pdf")},
+            headers=self._auth_headers(stu_a_token, "knust-gh"),
+        )
+        self.assertEqual(second_blocked.status_code, 409)
+
+        # Mark Thesis #1 completed (phase5_published) -> Student A is now unlocked to start their Master's thesis!
+        from app.core.tenant import tenant_bypass
+        from app.db.session import SessionLocal
+        from app.models.paper import Paper
+
+        with tenant_bypass():
+            db = SessionLocal()
+            try:
+                p = db.query(Paper).filter(Paper.id == paper_a_id).first()
+                p.status = "phase5_published"
+                db.add(p)
+                db.commit()
+            finally:
+                db.close()
+
+        elig_unlocked = self.client.get(
+            "/api/papers/submission-eligibility",
+            headers=self._auth_headers(stu_a_token, "knust-gh"),
+        )
+        self.assertEqual(elig_unlocked.status_code, 200)
+        self.assertTrue(elig_unlocked.json()["can_submit_new"])
+        self.assertEqual(elig_unlocked.json()["completed_count"], 1)
+
+        masters_upload = self.client.post(
+            "/api/papers/upload",
+            data={
+                "title": "KNUST Masters Distributed Microgrid Optimization",
+                "abstract": " ".join(["microgrid"] * 160),
+                "discipline": "Computer Engineering",
+                "university": "KNUST",
+                "year": "2027",
+            },
+            files={"file": ("masters.pdf", io.BytesIO(b"%PDF-1.4 MASTERS"), "application/pdf")},
+            headers=self._auth_headers(stu_a_token, "knust-gh"),
+        )
+        self.assertEqual(masters_upload.status_code, 201, masters_upload.text)
+        mine = self.client.get("/api/papers/mine", headers=self._auth_headers(stu_a_token, "knust-gh"))
+        self.assertEqual(mine.status_code, 200)
+        self.assertEqual(len(mine.json()), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

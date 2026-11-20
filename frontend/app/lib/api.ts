@@ -3199,4 +3199,27 @@ export async function apiPlatformAuditLogs(
   return handleResponse<ApiTenantAuditLog[]>(response)
 }
 
+export interface ApiSubmissionEligibility {
+  can_submit_new: boolean
+  active_submission: {
+    id: number
+    title: string
+    status: string
+    degree_level?: string | null
+    year?: number | null
+  } | null
+  completed_count: number
+  total_count: number
+  message: string
+}
+
+export async function apiGetSubmissionEligibility(
+  accessToken: string,
+): Promise<ApiSubmissionEligibility> {
+  const response = await tenantAwareFetch(`${apiBase}/papers/submission-eligibility`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiSubmissionEligibility>(response)
+}
+
 

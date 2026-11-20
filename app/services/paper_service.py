@@ -15,6 +15,94 @@ ABSTRACT_MIN_WORDS = 150
 ABSTRACT_MAX_WORDS = 300
 VALID_PUBLICATION_TYPES = {"thesis", "dissertation", "systematic_review", "article", "other"}
 
+# Submission statuses considered completed / closed (allowing a student to start their next degree thesis)
+COMPLETED_SUBMISSION_STATUSES = {
+    "approved",
+    "published",
+    "phase5_published",
+    "phase5_certified",
+}
+
+TERMINAL_SUBMISSION_STATUSES = COMPLETED_SUBMISSION_STATUSES | {
+    "rejected",
+    "phase1_topic_rejected",
+    "withdrawn",
+}
+
+
+def is_submission_completed(status: str | None) -> bool:
+    return (status or "").strip().lower() in COMPLETED_SUBMISSION_STATUSES
+
+
+def is_submission_terminal(status: str | None) -> bool:
+    return (status or "").strip().lower() in TERMINAL_SUBMISSION_STATUSES
+
+
+def get_active_student_submission(db: Session, user: User) -> Paper | None:
+    """Return a student's currently in-progress (non-terminal) thesis submission, if any."""
+    from app.services.user_service import has_role
+
+    if getattr(user, "is_admin", False) or getattr(user, "is_platform_admin", False):
+        return None
+    is_student = has_role(db, user, "student") or has_role(db, user, "member")
+    is_staff_or_faculty = any(
+        has_role(db, user, r)
+        for r in ("lecturer", "project_supervisor", "project_coordinator", "hod", "dean", "system_admin", "librarian", "head_library")
+    )
+    if not is_student or is_staff_or_faculty:
+        return None
+
+    papers = (
+        db.query(Paper)
+        .filter(Paper.created_by_id == user.id)
+        .order_by(desc(Paper.created_at), desc(Paper.id))
+        .all()
+    )
+    for paper in papers:
+        if not is_submission_terminal(paper.status):
+            return paper
+    return None
+
+
+def get_submission_eligibility(db: Session, user: User) -> dict[str, object]:
+    """Return whether the user can start a new thesis submission, plus active & completed counts."""
+    papers = (
+        db.query(Paper)
+        .filter(Paper.created_by_id == user.id)
+        .order_by(desc(Paper.created_at), desc(Paper.id))
+        .all()
+    )
+    active = get_active_student_submission(db, user)
+    completed_count = sum(1 for p in papers if is_submission_completed(p.status))
+    if active is not None:
+        return {
+            "can_submit_new": False,
+            "active_submission": {
+                "id": active.id,
+                "title": active.title,
+                "status": active.status,
+                "degree_level": active.degree_level,
+                "year": active.year,
+            },
+            "completed_count": completed_count,
+            "total_count": len(papers),
+            "message": (
+                f"You currently have an active thesis submission ('{active.title}'). "
+                "Please complete your current submission before starting a new one."
+            ),
+        }
+    return {
+        "can_submit_new": True,
+        "active_submission": None,
+        "completed_count": completed_count,
+        "total_count": len(papers),
+        "message": (
+            "Your previous thesis is complete. You can now start a new submission for your next programme."
+            if completed_count > 0
+            else "You are eligible to start a new thesis submission."
+        ),
+    }
+
 
 def count_words(text: str) -> int:
     """Count words in text."""

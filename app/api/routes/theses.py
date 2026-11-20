@@ -354,6 +354,18 @@ def submit_topic(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # 0. Enforce one active submission at a time for students
+    from app.services.paper_service import get_active_student_submission
+    active_submission = get_active_student_submission(db, current_user)
+    if active_submission is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"You already have an active thesis submission ('{active_submission.title}', "
+                f"status: {active_submission.status}). Complete your current submission before starting a new one."
+            ),
+        )
+
     # 1. Enforce strict duplicate topic prevention
     from app.services.integrity_service import check_duplicate_topic
     dup_check = check_duplicate_topic(db, topic_title)

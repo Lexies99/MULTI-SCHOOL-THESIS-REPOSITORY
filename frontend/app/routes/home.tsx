@@ -10,11 +10,13 @@ import { AccountManagement } from '../components/library/AccountManagement';
 import { Profile } from '../components/library/Profile';
 import { PhdHub } from '../components/library/PhdHub';
 import { InstitutionSettings } from '../components/library/InstitutionSettings';
+import { MyThesisSubmissions } from '../components/library/MyThesisSubmissions';
 import { useAuth } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import {
   Book,
   BookOpen,
+  FileText,
   Settings,
   BarChart3,
   Upload,
@@ -196,15 +198,18 @@ export default function Home() {
     } catch {}
   };
 
+  const canAccessMySubmissions = isAuthenticated && user?.role !== 'guest';
+
   const navItems = ([
-    { tab: 'dashboard', label: 'Dashboard & Reports', icon: BarChart3,     show: isAuthenticated && user?.role !== 'guest' },
-    { tab: 'catalog',   label: 'Catalog',             icon: Book,          show: true },
-    { tab: 'search',    label: 'Search & Discovery',  icon: Search,        show: true },
-    { tab: 'approval',  label: 'Approval Workflow',   icon: BookOpen,      show: isReviewer, badge: overdueCount > 0 ? overdueCount : null },
-    { tab: 'phd',       label: 'PhD Hub',             icon: GraduationCap, show: canViewPhdHub },
-    { tab: 'librarian', label: 'Schools and users',   icon: Building2,     show: isAdministrationUser },
-    { tab: 'branding',  label: 'Branding & Settings', icon: Palette,       show: isAdminAreaUser },
-    { tab: 'profile',   label: 'My Profile',          icon: User,          show: isAuthenticated && user?.role !== 'guest' },
+    { tab: 'dashboard',   label: 'Dashboard & Reports',  icon: BarChart3,     show: isAuthenticated && user?.role !== 'guest' },
+    { tab: 'submissions', label: 'My Thesis Submissions', icon: FileText,     show: canAccessMySubmissions },
+    { tab: 'catalog',     label: 'Catalog',              icon: Book,          show: true },
+    { tab: 'search',      label: 'Search & Discovery',   icon: Search,        show: true },
+    { tab: 'approval',    label: 'Approval Workflow',    icon: BookOpen,      show: isReviewer, badge: overdueCount > 0 ? overdueCount : null },
+    { tab: 'phd',         label: 'PhD Hub',              icon: GraduationCap, show: canViewPhdHub },
+    { tab: 'librarian',   label: 'Schools and users',    icon: Building2,     show: isAdministrationUser },
+    { tab: 'branding',    label: 'Branding & Settings',  icon: Palette,       show: isAdminAreaUser },
+    { tab: 'profile',     label: 'My Profile',           icon: User,          show: isAuthenticated && user?.role !== 'guest' },
   ] as Array<{tab:string;label:string;icon:React.ElementType;show:boolean|undefined;badge?:number|null}>).filter(item => item.show);
 
   if (tenantLoading && !tenant) {
@@ -744,6 +749,7 @@ export default function Home() {
           {activeTab === 'dashboard' && isAuthenticated && user?.role !== 'guest' && (
             <Dashboard userRole={user?.role || 'student'} />
           )}
+          {activeTab === 'submissions' && canAccessMySubmissions && <MyThesisSubmissions />}
           {activeTab === 'phd' && canViewPhdHub && <PhdHub />}
           {activeTab === 'profile'  && isAuthenticated && user?.role !== 'guest' && <Profile />}
           {activeTab === 'approval' && isReviewer && <ApprovalWorkflow />}

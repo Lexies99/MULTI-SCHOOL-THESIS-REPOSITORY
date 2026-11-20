@@ -7,9 +7,9 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { apiUploadPaper, apiCheckTopicDuplication, apiListDepartments, type ApiDepartment } from '../lib/api';
+import { apiUploadPaper, apiCheckTopicDuplication, apiListDepartments, apiGetSubmissionEligibility, getValidAccessToken, type ApiDepartment, type ApiSubmissionEligibility } from '../lib/api';
 import { createTopicPdfFile } from '../lib/pdfGenerator';
-import { ArrowLeft, AlertCircle, Sparkles, CheckCircle2, ShieldAlert, Cpu } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Sparkles, CheckCircle2, ShieldAlert, Cpu, Lock } from 'lucide-react';
 
 const PROPOSAL_DRAFT_KEY = 'murrs_proposal_draft_v1';
 
@@ -25,10 +25,37 @@ export default function SubmitProposal() {
   const { user, isAuthenticated } = useAuth();
   const { tenant, tenantPath } = useTenant();
   const [tenantDepartments, setTenantDepartments] = useState<ApiDepartment[]>([]);
+  const [eligibility, setEligibility] = useState<ApiSubmissionEligibility | null>(null);
+  const [checkingEligibility, setCheckingEligibility] = useState(true);
 
   useEffect(() => {
     void apiListDepartments().then(setTenantDepartments).catch(() => setTenantDepartments([]));
   }, [tenant?.slug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      setCheckingEligibility(true);
+      try {
+        const token = await getValidAccessToken();
+        if (!token) return;
+        const res = await apiGetSubmissionEligibility(token);
+        if (!cancelled) setEligibility(res);
+      } catch {
+        if (!cancelled) setEligibility(null);
+      } finally {
+        if (!cancelled) setCheckingEligibility(false);
+      }
+    };
+    if (isAuthenticated) {
+      void check();
+    } else {
+      setCheckingEligibility(false);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, tenant?.slug]);
   
   const [selectedFile] = useState<File | null>(null);
   const [workMode, setWorkMode] = useState<'individual' | 'group'>('individual');
@@ -238,7 +265,7 @@ export default function SubmitProposal() {
           title: formData.title,
           abstract: formData.abstract,
           discipline: formData.discipline,
-          university: user?.university || 'GIMPA',
+          university: tenant?.name || user?.university || 'GIMPA',
           document_type: 'proposal',
           license: 'all-rights-reserved',
           file: fileToUpload,
@@ -251,13 +278,13 @@ export default function SubmitProposal() {
       );
 
       setUploadProgress(100);
-      setMessage('Thesis topic submitted successfully! Redirecting to dashboard...');
+      setMessage('Thesis topic submitted successfully! Redirecting to My Thesis Submissions...');
       setMessageType('success');
       localStorage.removeItem(PROPOSAL_DRAFT_KEY);
 
       setTimeout(() => {
-        navigate('/');
-      }, 2000);
+        navigate(`${tenantPath('/')}?tab=submissions`);
+      }, 1600);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to submit proposal');
       setMessageType('error');
@@ -267,35 +294,86 @@ export default function SubmitProposal() {
     }
   };
 
+  const brandShort = tenant?.short_name || 'GIMPA';
+
   return (
-    <div className="min-h-screen bg-[#ffffff] text-[#1a1d1a]">
-      {/* FinPlanner Top Full-Width Soft Sage Header Bar */}
-      <header className="h-[60px] w-full bg-[#d8e5c7] border-b border-[#c9d8b6] px-8 flex items-center justify-between">
+    <div className="min-h-screen" style={{ background: 'var(--bg-main)', color: 'var(--text-main)' }}>
+      {/* Branded Top Header Bar */}
+      <header
+        className="h-[60px] w-full px-8 flex items-center justify-between"
+        style={{ background: 'var(--bg-header)', borderBottom: '1px solid var(--border-header)', color: 'var(--header-text, var(--text-main))' }}
+      >
         <div className="flex items-center gap-3">
-          <div className="size-8 rounded-full bg-[#1a1d1a] text-[#d8e5c7] flex items-center justify-center font-bold text-xs">
-            G
-          </div>
-          <span className="font-bold text-[15px] tracking-tight text-[#1a1d1a]">
-            GIMPA Thesis Repository
+          {tenant?.logo_url ? (
+            <img src={tenant.logo_url} alt={brandShort} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'contain', background: '#fff', padding: 2 }} />
+          ) : (
+            <div className="size-8 rounded-full flex items-center justify-center font-bold text-xs" style={{ background: 'var(--fp-olive)', color: 'var(--fp-olive-text, #fff)' }}>
+              {brandShort.slice(0, 2).toUpperCase()}
+            </div>
+          )}
+          <span className="font-bold text-[15px] tracking-tight">
+            {brandShort} Thesis Repository
           </span>
         </div>
         <button
           type="button"
-          onClick={() => navigate('/')}
-          className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#1a1d1a] hover:opacity-75 transition-opacity cursor-pointer"
+          onClick={() => navigate(`${tenantPath('/')}?tab=submissions`)}
+          className="inline-flex items-center gap-2 text-[13px] font-semibold hover:opacity-75 transition-opacity cursor-pointer"
+          style={{ background: 'none', border: 'none', color: 'inherit' }}
         >
           <ArrowLeft className="size-4" />
-          Back to Workspace
+          Back to My Thesis Submissions
         </button>
       </header>
 
-      {/* Main White Workspace */}
+      {/* Main Workspace */}
       <main className="mx-auto px-6 py-12 max-w-3xl">
+        {!checkingEligibility && eligibility && !eligibility.can_submit_new ? (
+          <div className="fp-card space-y-5 text-center py-10">
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center mx-auto"
+              style={{ background: 'var(--fp-sage)', color: 'var(--fp-sage-text)' }}
+            >
+              <Lock className="size-6" />
+            </div>
+            <div className="space-y-2 max-w-lg mx-auto">
+              <h1 className="text-[22px] font-bold">One Active Submission At A Time</h1>
+              <p className="text-[14px]" style={{ color: 'var(--text-muted)' }}>
+                {eligibility.message}
+              </p>
+              {eligibility.active_submission && (
+                <div
+                  className="p-4 rounded-xl text-left text-[13px] mt-3"
+                  style={{ background: 'var(--bg-main)', border: '1px solid var(--border-color)' }}
+                >
+                  <div>
+                    <strong>Active Thesis:</strong> {eligibility.active_submission.title}
+                  </div>
+                  <div className="mt-1">
+                    <strong>Current Status:</strong>{' '}
+                    <span className="capitalize">
+                      {eligibility.active_submission.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                </div>
+              )}
+              <p className="text-[12.5px] pt-2" style={{ color: 'var(--text-muted)' }}>
+                Once your current thesis is completed and archived, you will automatically be unlocked to submit your next degree thesis (for example, Master&apos;s or PhD) using the same account.
+              </p>
+            </div>
+            <div className="flex justify-center gap-3 pt-2">
+              <Button onClick={() => navigate(`${tenantPath('/')}?tab=submissions`)}>
+                Go to My Thesis Submissions
+              </Button>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="mb-8">
-          <h1 className="text-[28px] font-bold tracking-tight text-[#1a1d1a] mb-1">
+          <h1 className="text-[28px] font-bold tracking-tight mb-1">
             Submit Thesis Topic
           </h1>
-          <p className="text-[14px] text-[#6e746b]">
+          <p className="text-[14px]" style={{ color: 'var(--text-muted)' }}>
             Phase 1: Submit your proposed topic title and short description for HOD approval and supervisor assignment.
           </p>
         </div>
@@ -509,6 +587,8 @@ export default function SubmitProposal() {
             </div>
           </div>
         </form>
+        </>
+        )}
       </main>
     </div>
   );
