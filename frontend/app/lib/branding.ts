@@ -222,12 +222,14 @@ export function applyInstitutionBrandingCss(
     const darkBorder = mixHex("#262d29", primary, 0.28);
     const darkSage = mixHex("#1f2824", primary, 0.34);
     const darkSageHover = mixHex("#293630", primary, 0.42);
-    const darkPrimary = mixHex(primary, "#FFFFFF", 0.14);
-    const darkPrimaryHover = mixHex(primary, "#FFFFFF", 0.24);
+    const darkPrimary = mixHex(primary, "#FFFFFF", 0.22);
+    const darkPrimaryHover = mixHex(primary, "#FFFFFF", 0.32);
     const darkAccent = mixHex(accent, "#FFFFFF", 0.28);
+    const darkHeaderText = getAccessibleTextColor(darkHeader);
 
     root.style.setProperty("--bg-header", darkHeader);
     root.style.setProperty("--border-header", darkBorder);
+    root.style.setProperty("--header-text", darkHeaderText);
     root.style.setProperty("--fp-sage", darkSage);
     root.style.setProperty("--fp-sage-hover", darkSageHover);
     root.style.setProperty("--fp-sage-text", getAccessibleTextColor(darkSage));

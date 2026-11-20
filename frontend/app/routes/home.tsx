@@ -271,7 +271,7 @@ export default function Home() {
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              color: 'var(--text-main)',
+              color: 'var(--header-text, var(--text-main))',
             }}
             title="Toggle Menu"
           >
@@ -398,7 +398,7 @@ export default function Home() {
                 border: 'none',
                 padding: 6,
                 cursor: 'pointer',
-                color: 'var(--text-main)',
+                color: 'var(--header-text, var(--text-main))',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -421,7 +421,7 @@ export default function Home() {
                   border: 'none',
                   padding: 6,
                   cursor: 'pointer',
-                  color: 'var(--text-main)',
+                  color: 'var(--header-text, var(--text-main))',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -534,7 +534,7 @@ export default function Home() {
                 border: 'none',
                 padding: 6,
                 cursor: 'pointer',
-                color: 'var(--text-main)',
+                color: 'var(--header-text, var(--text-main))',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

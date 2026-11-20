@@ -150,8 +150,8 @@ export default function LoginPage() {
               <circle cx="265" cy="142" r="6" fill="currentColor" />
             </svg>
           )}
-          <h2 className="text-[22px] font-bold tracking-tight mb-2">{brandFull}</h2>
-          <p className="text-[13px] opacity-80 leading-relaxed">
+          <h2 className="text-[22px] font-bold tracking-tight mb-2" style={{ color: 'inherit' }}>{brandFull}</h2>
+          <p className="text-[13px] opacity-90 leading-relaxed" style={{ color: 'inherit' }}>
             Dedicated institutional thesis submission, academic supervision, examination, and digital research repository.
           </p>
         </div>

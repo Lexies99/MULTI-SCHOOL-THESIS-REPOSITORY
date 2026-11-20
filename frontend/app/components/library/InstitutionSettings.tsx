@@ -39,7 +39,8 @@ import {
 import { useTenant } from "../../context/TenantContext";
 
 export function InstitutionSettings() {
-  const { refreshTenant } = useTenant();
+  const { refreshTenant, theme } = useTenant();
+  const isDark = theme === "dark";
   const [institution, setInstitution] = useState<ApiInstitutionAdmin | null>(null);
   const [departments, setDepartments] = useState<ApiDepartment[]>([]);
   const [auditLogs, setAuditLogs] = useState<ApiTenantAuditLog[]>([]);
@@ -327,13 +328,34 @@ export function InstitutionSettings() {
       </div>
 
       {message && (
-        <div style={{ padding: "12px 16px", borderRadius: 10, background: "#dcfce7", color: "#166534", fontSize: 13.5, display: "flex", alignItems: "center", gap: 8 }}>
+        <div
+          style={{
+            padding: "12px 16px",
+            borderRadius: 10,
+            background: isDark ? "rgba(34, 197, 94, 0.14)" : "#dcfce7",
+            color: isDark ? "#86efac" : "#166534",
+            border: isDark ? "1px solid rgba(34, 197, 94, 0.3)" : "none",
+            fontSize: 13.5,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
           <CheckCircle2 style={{ width: 16, height: 16 }} />
           <span>{message}</span>
         </div>
       )}
       {error && (
-        <div style={{ padding: "12px 16px", borderRadius: 10, background: "#fdf2f0", color: "#c93b2b", fontSize: 13.5 }}>
+        <div
+          style={{
+            padding: "12px 16px",
+            borderRadius: 10,
+            background: isDark ? "rgba(239, 68, 68, 0.15)" : "#fdf2f0",
+            color: isDark ? "#fca5a5" : "#c93b2b",
+            border: isDark ? "1px solid rgba(239, 68, 68, 0.3)" : "none",
+            fontSize: 13.5,
+          }}
+        >
           {error}
         </div>
       )}
@@ -437,7 +459,25 @@ export function InstitutionSettings() {
           ))}
         </div>
 
-        <div style={{ fontSize: 12.5, padding: 12, borderRadius: 8, background: contrast.accessible ? "#f0fdf4" : "#fffbeb", border: "1px solid var(--border-color)", color: contrast.accessible ? "#166534" : "#92400e", marginBottom: 20 }}>
+        <div
+          style={{
+            fontSize: 12.5,
+            padding: 12,
+            borderRadius: 8,
+            background: contrast.accessible
+              ? (isDark ? "rgba(34, 197, 94, 0.14)" : "#f0fdf4")
+              : (isDark ? "rgba(245, 158, 11, 0.14)" : "#fffbeb"),
+            border: `1px solid ${
+              contrast.accessible
+                ? (isDark ? "rgba(34, 197, 94, 0.32)" : "var(--border-color)")
+                : (isDark ? "rgba(245, 158, 11, 0.35)" : "var(--border-color)")
+            }`,
+            color: contrast.accessible
+              ? (isDark ? "#86efac" : "#166534")
+              : (isDark ? "#fcd34d" : "#92400e"),
+            marginBottom: 20,
+          }}
+        >
           <strong>Contrast Audit:</strong> Primary {contrast.primaryRatio}:1 · Secondary {contrast.secondaryRatio}:1 · Accent {contrast.accentRatio}:1 —{" "}
           {contrast.accessible ? "Passes WCAG AA readability checks." : contrast.warnings.join(" ")}
         </div>

@@ -72,7 +72,8 @@ const PHASES = [
 export function MyThesisSubmissions() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { tenant, tenantPath } = useTenant();
+  const { tenant, tenantPath, theme } = useTenant();
+  const isDark = theme === "dark";
 
   const [papers, setPapers] = useState<ApiPaper[]>([]);
   const [eligibility, setEligibility] = useState<ApiSubmissionEligibility | null>(null);
@@ -350,18 +351,18 @@ export function MyThesisSubmissions() {
       </div>
 
       {error && (
-        <div style={{ padding: 14, borderRadius: 10, background: "#fdf2f0", border: "1px solid #f5d0ca", color: "#c93b2b", fontSize: 13.5 }}>
+        <div style={{ padding: 14, borderRadius: 10, background: isDark ? "rgba(239, 68, 68, 0.15)" : "#fdf2f0", border: `1px solid ${isDark ? "rgba(239, 68, 68, 0.32)" : "#f5d0ca"}`, color: isDark ? "#fca5a5" : "#c93b2b", fontSize: 13.5 }}>
           {error}
         </div>
       )}
       {actionMessage && (
-        <div style={{ padding: 14, borderRadius: 10, background: "#dcfce7", color: "#166534", fontSize: 13.5, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ padding: 14, borderRadius: 10, background: isDark ? "rgba(34, 197, 94, 0.14)" : "#dcfce7", border: isDark ? "1px solid rgba(34, 197, 94, 0.3)" : "none", color: isDark ? "#86efac" : "#166534", fontSize: 13.5, display: "flex", alignItems: "center", gap: 8 }}>
           <CheckCircle2 style={{ width: 16, height: 16 }} />
           <span>{actionMessage}</span>
         </div>
       )}
       {actionError && (
-        <div style={{ padding: 14, borderRadius: 10, background: "#fdf2f0", color: "#c93b2b", fontSize: 13.5, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ padding: 14, borderRadius: 10, background: isDark ? "rgba(239, 68, 68, 0.15)" : "#fdf2f0", border: isDark ? "1px solid rgba(239, 68, 68, 0.32)" : "none", color: isDark ? "#fca5a5" : "#c93b2b", fontSize: 13.5, display: "flex", alignItems: "center", gap: 8 }}>
           <AlertCircle style={{ width: 16, height: 16 }} />
           <span>{actionError}</span>
         </div>
@@ -663,7 +664,7 @@ export function MyThesisSubmissions() {
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 3 }}>
                           <span
                             className="badge"
-                            style={{ background: "#dcfce7", color: "#166534" }}
+                            style={{ background: isDark ? "rgba(34, 197, 94, 0.18)" : "#dcfce7", color: isDark ? "#86efac" : "#166534" }}
                           >
                             ✓ Completed & Published
                           </span>
