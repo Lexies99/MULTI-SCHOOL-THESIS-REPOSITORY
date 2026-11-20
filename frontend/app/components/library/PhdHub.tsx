@@ -558,10 +558,10 @@ export function PhdHub() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-[30px] font-bold tracking-tight text-[#1a1d1a] leading-tight">
-              {isStudent ? 'My Doctoral Progression Hub' : 'PhD Programme & Progression Hub'}
+              {isStudent ? 'My PhD Hub & 6-Stage Doctoral Pipeline' : 'PhD Hub & 6-Stage Doctoral Pipeline'}
             </h1>
             <p className="text-[13px] text-[#6e766b] mt-1">
-              6-Stage gated doctoral lifecycle: Coursework &amp; Advisor → Comp Assessor → Comp Exam &amp; Supervisor → Seminars &amp; Supervision → Pre-Viva → External Viva &amp; Defense Marks.
+              1. Coursework &amp; Advisor → 2. Assign Assessor → 3. Pass Comp. Exam → Assign Supervisor → 4. Seminars → 5. Pre-Viva Examiner → 6. External Examiner, Viva &amp; Defense Marks
             </p>
           </div>
 
@@ -579,14 +579,14 @@ export function PhdHub() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           {[
-            { key: 'dossiers', label: isStudent ? 'My 6-Stage Pipeline' : 'Student Dossiers', icon: UserCheck },
-            { key: 'coursework', label: '1. Coursework & Grades', icon: BookMarked },
-            { key: 'exams', label: '2–3. Comp Exam & Supervisor', icon: Award },
+            { key: 'dossiers', label: '1. Dossiers & Pipeline', icon: UserCheck },
+            { key: 'coursework', label: '2. Coursework, Grades & Advisor', icon: BookMarked },
+            { key: 'exams', label: '3. Assessor, Comp. Exam & Supervisor Gate', icon: Award },
             { key: 'seminars', label: '4. Seminars', icon: BookOpen },
-            { key: 'supervision', label: '4. Supervision Logs', icon: Clock },
-            { key: 'viva', label: '5–6. Pre-Viva & Viva Marks', icon: GraduationCap },
+            { key: 'viva', label: '5. Pre-Viva, External Viva & Defense Marks', icon: GraduationCap },
+            { key: 'supervision', label: '6. Supervision Logs (12 Stages)', icon: Clock },
             { key: 'teaching', label: 'Teaching Practice', icon: FileCheck },
             { key: 'reviews', label: '6-Month Reviews', icon: ShieldCheck },
             { key: 'calendar', label: 'Calendar', icon: Calendar },
@@ -899,17 +899,167 @@ export function PhdHub() {
       )}
 
       {/* ────────────────────────────────────────────────────────── */}
-      {/* STAGE 1: ENROLLMENT, COURSEWORK, ASSIGNMENTS & GRADES      */}
+      {/* TAB 2: COURSEWORK, GRADES & ADVISOR (Matches Screenshot)   */}
       {/* ────────────────────────────────────────────────────────── */}
       {activeSubTab === 'coursework' && (
         <div className="space-y-6">
+          {/* Top Stage 1 Header Banner Card */}
+          <div className="fp-card flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-[18px] font-bold text-[#1a1d1a]">
+                Stage 1: Doctoral Coursework, Assignments, Exams &amp; Grades (Advisor Phase)
+              </h3>
+              <p className="text-[13px] text-[#6e766b] mt-1 max-w-3xl">
+                Track all courses a PhD student takes upon enrollment — including assignment marks (/20), coursework (/20), course exam (/60), automatic grade &amp; GPA calculation, and Academic Advisor clearance.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="shrink-0"
+              onClick={() => {
+                setEditingCourse(null)
+                setCourseForm({
+                  student_id: activeStudent?.student_id || user?.id || 0,
+                  course_code: '',
+                  course_title: '',
+                  academic_year: tenant?.academic_year || '2025/2026',
+                  semester: 'Semester 1',
+                  credit_hours: 3,
+                  assignment_score: undefined,
+                  coursework_score: undefined,
+                  exam_score: undefined,
+                  letter_grade: '',
+                  status: 'Enrolled',
+                  instructor_name: '',
+                  remarks: '',
+                })
+                setShowCourseModal(true)
+              }}
+            >
+              + {isStudent ? 'Register Course' : 'Add Course, Marks & Grade'}
+            </Button>
+          </div>
+
+          {/* Coursework, Assignments, Exams & Grades Table */}
+          <div className="overflow-x-auto">
+            <table className="fp-table">
+              <thead>
+                <tr>
+                  <th>PhD Student</th>
+                  <th>Course Code &amp; Title</th>
+                  <th>Year / Semester</th>
+                  <th>Assignments (/20)</th>
+                  <th>Coursework (/20)</th>
+                  <th>Exam (/60)</th>
+                  <th>Total &amp; Grade</th>
+                  <th>Academic Advisor</th>
+                  <th>Advisor Status</th>
+                  {isSupervisorOrStaff && <th className="text-right">Action</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {courseworkList.map((cw) => {
+                  const studentDossier = dossiers.find((d) => d.student_id === cw.student_id)
+                  const advisorName =
+                    studentDossier?.advisor_name ||
+                    (progression && progression.student_id === cw.student_id ? progression.advisor_name : null) ||
+                    'Unassigned'
+                  const advisorCleared =
+                    studentDossier?.advisor_cleared_for_comps ??
+                    (progression && progression.student_id === cw.student_id ? progression.advisor_cleared_for_comps : false)
+                  return (
+                    <tr key={cw.id}>
+                      <td className="font-medium">{cw.student_name || studentDossier?.student_name || `ID #${cw.student_id}`}</td>
+                      <td>
+                        <div className="font-bold text-[#1a1d1a]">{cw.course_code}: {cw.course_title}</div>
+                        <div className="text-[11px] text-[#6e766b]">
+                          {cw.credit_hours} cr.{cw.instructor_name ? ` · ${cw.instructor_name}` : ''}
+                        </div>
+                      </td>
+                      <td>{cw.academic_year} / {cw.semester}</td>
+                      <td>{cw.assignment_score != null ? `${cw.assignment_score}/20` : '—'}</td>
+                      <td>{cw.coursework_score != null ? `${cw.coursework_score}/20` : '—'}</td>
+                      <td>{cw.exam_score != null ? `${cw.exam_score}/60` : '—'}</td>
+                      <td className={`font-bold ${cw.letter_grade === 'F' ? 'text-[#c93b2b]' : 'text-[#3b7a57]'}`}>
+                        {cw.total_score != null ? `${cw.total_score}%` : '—'}{' '}
+                        {cw.letter_grade ? `(${cw.letter_grade})` : ''}
+                      </td>
+                      <td>{advisorName}</td>
+                      <td>
+                        <Badge variant={advisorCleared ? 'default' : 'secondary'}>
+                          {advisorCleared ? 'Cleared' : cw.status}
+                        </Badge>
+                      </td>
+                      {isSupervisorOrStaff && (
+                        <td className="text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCourse(cw)
+                                setCourseForm({
+                                  student_id: cw.student_id,
+                                  course_code: cw.course_code,
+                                  course_title: cw.course_title,
+                                  academic_year: cw.academic_year,
+                                  semester: cw.semester,
+                                  credit_hours: cw.credit_hours,
+                                  assignment_score: cw.assignment_score ?? undefined,
+                                  coursework_score: cw.coursework_score ?? undefined,
+                                  exam_score: cw.exam_score ?? undefined,
+                                  total_score: cw.total_score ?? undefined,
+                                  letter_grade: cw.letter_grade || '',
+                                  status: cw.status,
+                                  instructor_name: cw.instructor_name || '',
+                                  remarks: cw.remarks || '',
+                                })
+                                setShowCourseModal(true)
+                              }}
+                              className="p-1.5 rounded-lg text-[#6e766b] hover:text-[#1a1d1a] cursor-pointer"
+                              title="Edit marks / grade"
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!window.confirm(`Delete ${cw.course_code}?`)) return
+                                try {
+                                  await apiDeletePhdCoursework(token, cw.id)
+                                  await loadAll()
+                                } catch (err) {
+                                  setFeedbackBanner({ type: 'error', text: extractError(err) })
+                                }
+                              }}
+                              className="p-1.5 rounded-lg text-[#6e766b] hover:text-[#c93b2b] cursor-pointer"
+                              title="Remove course"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+                {courseworkList.length === 0 && (
+                  <tr>
+                    <td colSpan={isSupervisorOrStaff ? 10 : 9} className="py-10 text-center text-[#6e766b]">
+                      No doctoral coursework, assignment, or exam grade records logged yet. Click <strong>+ Add Course, Marks &amp; Grade</strong> to enroll courses.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
           <StudentSelectorBar />
 
           {/* Stage 1 KPI Summary + Advisor Clearance Gate */}
           {progression && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
               <div className="fp-card lg:col-span-5 space-y-4">
-                <h3 className="text-[16px] font-bold text-[#1a1d1a]">Stage 1: Academic Advisor &amp; Coursework Summary</h3>
+                <h3 className="text-[16px] font-bold text-[#1a1d1a]">Academic Advisor &amp; GPA Summary</h3>
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div className="p-3 rounded-xl bg-[#fafbf8] border border-[#eaece4]">
                     <div className="text-[11px] text-[#8c9489]">Courses</div>
@@ -974,7 +1124,7 @@ export function PhdHub() {
                 {(isLeadership || progression.advisor_id === user?.id) && (
                   <div className="space-y-3">
                     <Input
-                      placeholder="Advisor clearance notes (e.g. All 6 doctoral foundation courses passed with GPA >= 3.5)"
+                      placeholder="Advisor clearance notes (e.g. All doctoral foundation courses passed with GPA >= 3.5)"
                       value={clearanceNotes}
                       onChange={(e) => setClearanceNotes(e.target.value)}
                     />
@@ -1010,137 +1160,6 @@ export function PhdHub() {
               </div>
             </div>
           )}
-
-          {/* Coursework, Assignments, Exams & Grades Table */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-[17px] font-bold text-[#1a1d1a]">Enrolled Courses, Assignments, Exams &amp; Grades</h3>
-              <p className="text-[12.5px] text-[#6e766b]">
-                Track every doctoral course, continuous assignment mark, exam mark, weighted total, and letter grade.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditingCourse(null)
-                setCourseForm({
-                  student_id: activeStudent?.student_id || user?.id || 0,
-                  course_code: '',
-                  course_title: '',
-                  academic_year: tenant?.academic_year || '2025/2026',
-                  semester: 'Semester 1',
-                  credit_hours: 3,
-                  assignment_score: undefined,
-                  coursework_score: undefined,
-                  exam_score: undefined,
-                  letter_grade: '',
-                  status: 'Enrolled',
-                  instructor_name: '',
-                  remarks: '',
-                })
-                setShowCourseModal(true)
-              }}
-            >
-              + {isStudent ? 'Register Course' : 'Add Course / Grade'}
-            </Button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="fp-table">
-              <thead>
-                <tr>
-                  <th>Course</th>
-                  <th>Term</th>
-                  <th>Cr.</th>
-                  <th>Assignment</th>
-                  <th>Coursework</th>
-                  <th>Exam</th>
-                  <th>Total</th>
-                  <th>Grade (GP)</th>
-                  <th>Status</th>
-                  {isSupervisorOrStaff && <th className="text-right">Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {courseworkList.map((cw) => (
-                  <tr key={cw.id}>
-                    <td>
-                      <div className="font-bold text-[#1a1d1a]">{cw.course_code}: {cw.course_title}</div>
-                      {cw.instructor_name && <div className="text-[11px] text-[#6e766b]">Instructor: {cw.instructor_name}</div>}
-                    </td>
-                    <td>{cw.academic_year} · {cw.semester}</td>
-                    <td>{cw.credit_hours}</td>
-                    <td>{cw.assignment_score != null ? cw.assignment_score : '—'}</td>
-                    <td>{cw.coursework_score != null ? cw.coursework_score : '—'}</td>
-                    <td>{cw.exam_score != null ? cw.exam_score : '—'}</td>
-                    <td className="font-bold">{cw.total_score != null ? `${cw.total_score}%` : '—'}</td>
-                    <td className={`font-bold ${cw.letter_grade === 'F' ? 'text-[#c93b2b]' : 'text-[#3b7a57]'}`}>
-                      {cw.letter_grade ? `${cw.letter_grade} (${cw.grade_point?.toFixed(1) ?? '—'})` : 'Pending'}
-                    </td>
-                    <td>
-                      <Badge variant={cw.status === 'Failed' ? 'secondary' : 'default'}>{cw.status}</Badge>
-                    </td>
-                    {isSupervisorOrStaff && (
-                      <td className="text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingCourse(cw)
-                              setCourseForm({
-                                student_id: cw.student_id,
-                                course_code: cw.course_code,
-                                course_title: cw.course_title,
-                                academic_year: cw.academic_year,
-                                semester: cw.semester,
-                                credit_hours: cw.credit_hours,
-                                assignment_score: cw.assignment_score ?? undefined,
-                                coursework_score: cw.coursework_score ?? undefined,
-                                exam_score: cw.exam_score ?? undefined,
-                                total_score: cw.total_score ?? undefined,
-                                letter_grade: cw.letter_grade || '',
-                                status: cw.status,
-                                instructor_name: cw.instructor_name || '',
-                                remarks: cw.remarks || '',
-                              })
-                              setShowCourseModal(true)
-                            }}
-                            className="p-1.5 rounded-lg text-[#6e766b] hover:text-[#1a1d1a] cursor-pointer"
-                            title="Edit marks / grade"
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!window.confirm(`Delete ${cw.course_code}?`)) return
-                              try {
-                                await apiDeletePhdCoursework(token, cw.id)
-                                await loadAll()
-                              } catch (err) {
-                                setFeedbackBanner({ type: 'error', text: extractError(err) })
-                              }
-                            }}
-                            className="p-1.5 rounded-lg text-[#6e766b] hover:text-[#c93b2b] cursor-pointer"
-                            title="Remove course"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-                {courseworkList.length === 0 && (
-                  <tr>
-                    <td colSpan={isSupervisorOrStaff ? 10 : 9} className="py-10 text-center text-[#6e766b]">
-                      No coursework or grade records entered yet for this candidate.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 
@@ -2031,9 +2050,11 @@ export function PhdHub() {
                 <>
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <Label>Assignment Score</Label>
+                      <Label>Assignments (/20)</Label>
                       <Input
                         type="number"
+                        min={0}
+                        max={20}
                         step="0.5"
                         placeholder="e.g. 18"
                         value={courseForm.assignment_score ?? ''}
@@ -2041,9 +2062,11 @@ export function PhdHub() {
                       />
                     </div>
                     <div>
-                      <Label>Coursework Score</Label>
+                      <Label>Coursework (/20)</Label>
                       <Input
                         type="number"
+                        min={0}
+                        max={20}
                         step="0.5"
                         placeholder="e.g. 17"
                         value={courseForm.coursework_score ?? ''}
@@ -2051,9 +2074,11 @@ export function PhdHub() {
                       />
                     </div>
                     <div>
-                      <Label>Exam Score</Label>
+                      <Label>Exam (/60)</Label>
                       <Input
                         type="number"
+                        min={0}
+                        max={60}
                         step="0.5"
                         placeholder="e.g. 52"
                         value={courseForm.exam_score ?? ''}
