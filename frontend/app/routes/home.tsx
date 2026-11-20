@@ -627,7 +627,7 @@ export default function Home() {
                     background: isActive ? 'var(--fp-sage)' : 'transparent',
                     color: isActive ? 'var(--fp-sage-text)' : 'var(--text-main)',
                     fontWeight: isActive ? 600 : 400,
-                    fontSize: 14,
+                    fontSize: 15,
                     textAlign: 'left',
                     transition: 'background 0.15s ease',
                   }}
@@ -661,14 +661,14 @@ export default function Home() {
             borderTop: '1px solid var(--border-color)',
             borderBottom: '1px solid var(--border-color)',
           }}>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400, marginBottom: 4 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 400, marginBottom: 4 }}>
               {user && isAuthenticated && user.role !== 'guest' ? 'Active role & account' : 'Repository status'}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
               {roleLabel}
             </div>
             {user && isAuthenticated && user.role !== 'guest' && (
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: 13.5, color: 'var(--text-muted)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {user.name}
               </div>
             )}
