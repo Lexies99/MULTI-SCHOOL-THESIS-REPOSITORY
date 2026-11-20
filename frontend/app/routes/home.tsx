@@ -201,7 +201,7 @@ export default function Home() {
   const canAccessMySubmissions = isAuthenticated && user?.role !== 'guest';
 
   const navItems = ([
-    { tab: 'dashboard',   label: 'Dashboard & Reports',  icon: BarChart3,     show: isAuthenticated && user?.role !== 'guest' },
+    { tab: 'dashboard',   label: isReviewer || isAdministrationUser ? 'Dashboard & Reports' : 'Dashboard',  icon: BarChart3,     show: isAuthenticated && user?.role !== 'guest' },
     { tab: 'submissions', label: 'My Thesis Submissions', icon: FileText,     show: canAccessMySubmissions },
     { tab: 'catalog',     label: 'Catalog',              icon: Book,          show: true },
     { tab: 'search',      label: 'Search & Discovery',   icon: Search,        show: true },
@@ -679,15 +679,15 @@ export default function Home() {
                 {user.name}
               </div>
             )}
-            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: 12, color: 'var(--fp-olive)', fontWeight: 600, cursor: 'pointer' }}
-              >
-                ← Switch Institution ({tenantSlug || 'gimpa'})
-              </button>
-              {user?.isPlatformAdmin && (
+            {user?.isPlatformAdmin && (
+              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: 12, color: 'var(--fp-olive)', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  ← Switch Institution ({tenantSlug || 'gimpa'})
+                </button>
                 <button
                   type="button"
                   onClick={() => navigate('/platform')}
@@ -696,8 +696,8 @@ export default function Home() {
                   <Shield style={{ width: 12, height: 12 }} />
                   <span>Platform Admin Console</span>
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </aside>
 

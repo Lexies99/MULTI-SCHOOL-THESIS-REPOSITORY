@@ -45,6 +45,7 @@ import type {
   ApiDashboardLiveMetrics,
 } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
+import { useTenant } from '../../context/TenantContext'
 import {
   Upload, FileText, CheckCircle2, Clock, AlertCircle, Trash2,
   FileEdit, MessageSquare, Send, Users,
@@ -298,6 +299,7 @@ interface DashboardProps {
 
 export function Dashboard({ userRole }: DashboardProps) {
   const { user } = useAuth()
+  const { tenantPath } = useTenant()
   const navigate = useNavigate()
   const userRoles = (user?.roles || []) as string[]
   const hasRole = (r: string) => userRole === r || userRoles.includes(r)
@@ -309,11 +311,25 @@ export function Dashboard({ userRole }: DashboardProps) {
   const isHodOrCoordinator = hasRole('hod') || hasRole('project_coordinator') || hasRole('dean') || isDeputyRector
   const isAcademicSupervisor = hasRole('project_supervisor') || hasRole('lecturer')
 
+  const isPureStudent =
+    isStudent &&
+    !isSystemAdmin &&
+    !isDeputyRector &&
+    !isHodOrCoordinator &&
+    !isAcademicSupervisor &&
+    !isLibrarian
+
   const showPipeline = (isHodOrCoordinator || isSystemAdmin || isDeputyRector) && !isLibrarian
   const isSupervisor = (isAcademicSupervisor || isHodOrCoordinator || isSystemAdmin || isDeputyRector) && !isLibrarian
   const showSupervisorPerformance = (isHodOrCoordinator || isSystemAdmin || isDeputyRector) && !isLibrarian
   const showUserDirectory = (isSystemAdmin || isDeputyRector) && !isLibrarian
   const canManageCeilings = isHodOrCoordinator || isSystemAdmin || isDeputyRector
+
+  const canViewReporting = isSystemAdmin || isDeputyRector || isHodOrCoordinator || isLibrarian
+  const canViewPlagiarism = isSystemAdmin || isDeputyRector || isHodOrCoordinator || isAcademicSupervisor
+  const canViewSla = isSystemAdmin || isDeputyRector || isHodOrCoordinator || isAcademicSupervisor
+  const canReviewQueue = isSystemAdmin || isDeputyRector || isHodOrCoordinator || isAcademicSupervisor || isLibrarian
+  const canSubmitProposal = isStudent || hasRole('lecturer')
 
   // Active Sub-Tab matching FinPlanner pills
   const [activeSubTab, setActiveSubTab] = useState<
@@ -390,10 +406,10 @@ export function Dashboard({ userRole }: DashboardProps) {
       ] = await Promise.all([
         apiGetPaperStats(isStudent && user?.id ? user.id : undefined),
         apiGetMyPapers(accessToken),
-        apiGetDashboardLiveMetrics(accessToken).catch(() => null),
-        apiGetSupervisorCapacities(accessToken).catch(() => []),
-        apiGetSupervisorCommentsReport(accessToken).catch(() => ({ total_comments: 0, entries: [], supervisors_summary: [] })),
-        apiGetOverdueReviews(accessToken, 5).catch(() => []),
+        !isPureStudent ? apiGetDashboardLiveMetrics(accessToken).catch(() => null) : Promise.resolve(null),
+        canManageCeilings ? apiGetSupervisorCapacities(accessToken).catch(() => []) : Promise.resolve([]),
+        canManageCeilings ? apiGetSupervisorCommentsReport(accessToken).catch(() => ({ total_comments: 0, entries: [], supervisors_summary: [] })) : Promise.resolve({ total_comments: 0, entries: [], supervisors_summary: [] }),
+        canViewSla ? apiGetOverdueReviews(accessToken, 5).catch(() => []) : Promise.resolve([]),
         showPipeline ? apiGetPipelineMetrics(accessToken).catch(() => null) : Promise.resolve(null),
         showUserDirectory ? apiListUsers(accessToken, { limit: 500 }).catch(() => []) : Promise.resolve([]),
         showUserDirectory ? apiListStudents(accessToken, { limit: 500 }).catch(() => []) : Promise.resolve([]),
@@ -605,7 +621,7 @@ export function Dashboard({ userRole }: DashboardProps) {
     { label: '12/26', bottomPct: 40, topPct: 34 },
   ]
 
-  // Recent / Upcoming items for Image 4 top-right card
+  // Recent / Upcoming items — strictly real, role-scoped data (no hardcoded fake students)
   const recentActivityRows = useMemo(() => {
     const items: Array<{
       date: string
@@ -616,51 +632,107 @@ export function Dashboard({ userRole }: DashboardProps) {
       darkTag: boolean
     }> = []
 
-    myPapers.slice(0, 3).forEach((p) => {
+    myPapers.slice(0, 5).forEach((p) => {
+      const dateStr = p.created_at
+        ? new Date(p.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
+        : String(p.year || '')
       items.push({
-        date: p.publication_date ? new Date(p.publication_date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '14/11/26',
-        metric: `+ID #${p.id}`,
-        isNegative: p.status === 'rejected' || p.status === 'phase5_corrections',
-        author: p.authors?.[0]?.name || user?.name || 'Scholar',
+        date: dateStr,
+        metric: `#${p.id}`,
+        isNegative: p.status === 'rejected' || p.status === 'phase1_topic_rejected' || p.status === 'phase5_corrections',
+        author: isPureStudent ? p.title : (p.authors?.[0]?.name || user?.name || 'Scholar'),
         tag: p.status.replace(/^phase\d_/, '').replace(/_/g, ' '),
         darkTag: p.status.includes('combined') || p.status.includes('examination'),
       })
     })
 
-    overdueList.slice(0, 3).forEach((o) => {
-      if (items.length < 5) {
-        items.push({
-          date: '15/11/26',
-          metric: `-${o.days_pending}d SLA`,
-          isNegative: true,
-          author: o.student_name,
-          tag: 'Overdue',
-          darkTag: true,
-        })
-      }
-    })
-
-    const defaults = [
-      { date: '14/11/26', metric: '+92% Sim.', isNegative: false, author: 'K. Boateng', tag: 'Approved', darkTag: false },
-      { date: '14/11/26', metric: '+Ch. 1-3', isNegative: false, author: 'A. Mensah', tag: 'Proposal', darkTag: false },
-      { date: '15/11/26', metric: '-5d Delay', isNegative: true, author: 'E. Osei', tag: 'Review', darkTag: true },
-      { date: '15/11/26', metric: '+Ch. 1-5', isNegative: false, author: 'M. Appiah', tag: 'Defense', darkTag: true },
-      { date: '15/11/26', metric: '+Certified', isNegative: false, author: 'D. Asante', tag: 'Archive', darkTag: false },
-    ]
-
-    while (items.length < 5) {
-      items.push(defaults[items.length])
+    if (!isPureStudent && canViewSla) {
+      overdueList.slice(0, 5).forEach((o) => {
+        if (items.length < 5) {
+          items.push({
+            date: o.submitted_at
+              ? new Date(o.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
+              : 'SLA',
+            metric: `-${o.days_pending}d SLA`,
+            isNegative: true,
+            author: o.student_name,
+            tag: 'Overdue',
+            darkTag: true,
+          })
+        }
+      })
     }
+
     return items.slice(0, 5)
-  }, [myPapers, overdueList, user?.name])
+  }, [myPapers, overdueList, user?.name, isPureStudent, canViewSla])
+
+  useEffect(() => {
+    if (activeSubTab === 'reporting' && !canViewReporting) setActiveSubTab('welcome')
+    if (activeSubTab === 'operations' && !showPipeline) setActiveSubTab('welcome')
+    if (activeSubTab === 'capacities' && !canManageCeilings) setActiveSubTab('welcome')
+    if (activeSubTab === 'plagiarism' && !canViewPlagiarism) setActiveSubTab('welcome')
+    if (activeSubTab === 'comments' && !canManageCeilings) setActiveSubTab('welcome')
+    if (activeSubTab === 'overdue' && !canViewSla) setActiveSubTab('welcome')
+  }, [activeSubTab, canViewReporting, showPipeline, canManageCeilings, canViewPlagiarism, canViewSla])
+
+  const studentCompletedCount = myPapers.filter((p) =>
+    ['approved', 'published', 'phase5_published', 'phase5_certified'].includes((p.status || '').toLowerCase()),
+  ).length
+  const studentActiveCount = myPapers.filter(
+    (p) =>
+      !['approved', 'published', 'phase5_published', 'phase5_certified', 'rejected', 'phase1_topic_rejected', 'withdrawn'].includes(
+        (p.status || '').toLowerCase(),
+      ),
+  ).length
+  const studentTotalViews = myPapers.reduce((acc, p) => acc + (p.views || 0), 0)
+  const studentTotalDownloads = myPapers.reduce((acc, p) => acc + (p.downloads || 0), 0)
+
+  const quickAccessItems = [
+    {
+      icon: FileText,
+      label: 'My Thesis Submissions',
+      onClick: () => navigate(`${tenantPath('/')}?tab=submissions`),
+      show: true,
+    },
+    {
+      icon: FolderOpen,
+      label: 'Submit Proposal / Thesis',
+      onClick: () => navigate(tenantPath('/submit-proposal')),
+      show: canSubmitProposal && (!isPureStudent || studentActiveCount === 0),
+    },
+    {
+      icon: TrendingUp,
+      label: 'Review & Approval Queue',
+      onClick: () => navigate(`${tenantPath('/')}?tab=approval`),
+      show: canReviewQueue,
+    },
+    {
+      icon: BookOpen,
+      label: 'Public Thesis Catalog',
+      onClick: () => navigate(`${tenantPath('/')}?tab=catalog`),
+      show: true,
+    },
+    {
+      icon: User,
+      label: 'My Profile & Account',
+      onClick: () => navigate(`${tenantPath('/')}?tab=profile`),
+      show: true,
+    },
+  ].filter((item) => item.show)
 
   return (
     <div className="space-y-8">
-      {/* ── PAGE HEADER & SUB-NAVIGATION PILLS (FinPlanner Images 4 & 7) ── */}
+      {/* ── PAGE HEADER & ROLE-SCOPED SUB-NAVIGATION PILLS ── */}
       <div className="space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <h1 className="text-[32px] font-bold tracking-tight text-[#1a1d1a] leading-tight">
-            {activeSubTab === 'welcome' ? 'Welcome!' : activeSubTab === 'reporting' ? 'Reporting' : 'Repository Operations'}
+            {isPureStudent
+              ? `Welcome, ${user?.name?.split(' ')[0] || 'Student'}!`
+              : activeSubTab === 'welcome'
+                ? 'Welcome!'
+                : activeSubTab === 'reporting'
+                  ? 'Reporting'
+                  : 'Repository Operations'}
           </h1>
 
           <div className="flex flex-wrap items-center gap-2.5">
@@ -688,75 +760,85 @@ export function Dashboard({ userRole }: DashboardProps) {
           </div>
         </div>
 
-        {/* FinPlanner Sub-Navigation Pills (Image 7) */}
-        <div className="flex flex-wrap items-center gap-2.5 pb-1">
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('welcome')}
-            className={`fp-subnav-pill ${activeSubTab === 'welcome' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
-          >
-            <BookOpen className="size-3.5" />
-            Overview
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('reporting')}
-            className={`fp-subnav-pill ${activeSubTab === 'reporting' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
-          >
-            <BarChart3 className="size-3.5" />
-            Reporting & KPIs
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('operations')}
-            className={`fp-subnav-pill ${activeSubTab === 'operations' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
-          >
-            <FolderOpen className="size-3.5" />
-            Phase Pipeline
-          </button>
-
-          {canManageCeilings && (
+        {/* Role-Scoped Sub-Navigation Pills (Hidden for Pure Students) */}
+        {!isPureStudent && (
+          <div className="flex flex-wrap items-center gap-2.5 pb-1">
             <button
               type="button"
-              onClick={() => setActiveSubTab('capacities')}
-              className={`fp-subnav-pill ${activeSubTab === 'capacities' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
+              onClick={() => setActiveSubTab('welcome')}
+              className={`fp-subnav-pill ${activeSubTab === 'welcome' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
             >
-              <Sliders className="size-3.5" />
-              Supervisor Quotas ({capacities.length})
+              <BookOpen className="size-3.5" />
+              Overview
             </button>
-          )}
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('plagiarism')}
-            className={`fp-subnav-pill ${activeSubTab === 'plagiarism' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
-          >
-            <ShieldCheck className="size-3.5" />
-            Plagiarism Radar
-          </button>
+            {canViewReporting && (
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('reporting')}
+                className={`fp-subnav-pill ${activeSubTab === 'reporting' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
+              >
+                <BarChart3 className="size-3.5" />
+                Reporting & KPIs
+              </button>
+            )}
 
-          {canManageCeilings && (
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('comments')}
-              className={`fp-subnav-pill ${activeSubTab === 'comments' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
-            >
-              <MessageSquare className="size-3.5" />
-              Remarks ({commentsReport.length})
-            </button>
-          )}
+            {showPipeline && (
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('operations')}
+                className={`fp-subnav-pill ${activeSubTab === 'operations' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
+              >
+                <FolderOpen className="size-3.5" />
+                Phase Pipeline
+              </button>
+            )}
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('overdue')}
-            className={`fp-subnav-pill ${activeSubTab === 'overdue' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
-          >
-            <Clock className="size-3.5" />
-            5-Day SLA ({overdueCount})
-          </button>
-        </div>
+            {canManageCeilings && (
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('capacities')}
+                className={`fp-subnav-pill ${activeSubTab === 'capacities' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
+              >
+                <Sliders className="size-3.5" />
+                Supervisor Quotas ({capacities.length})
+              </button>
+            )}
+
+            {canViewPlagiarism && (
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('plagiarism')}
+                className={`fp-subnav-pill ${activeSubTab === 'plagiarism' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
+              >
+                <ShieldCheck className="size-3.5" />
+                Plagiarism Radar
+              </button>
+            )}
+
+            {canManageCeilings && (
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('comments')}
+                className={`fp-subnav-pill ${activeSubTab === 'comments' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
+              >
+                <MessageSquare className="size-3.5" />
+                Remarks ({commentsReport.length})
+              </button>
+            )}
+
+            {canViewSla && (
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('overdue')}
+                className={`fp-subnav-pill ${activeSubTab === 'overdue' ? 'fp-subnav-pill-active' : 'fp-subnav-pill-inactive'}`}
+              >
+                <Clock className="size-3.5" />
+                5-Day SLA ({overdueCount})
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {alertTriggerResult && (
@@ -772,145 +854,159 @@ export function Dashboard({ userRole }: DashboardProps) {
       )}
 
       {/* ========================================================================= */}
-      {/* VIEW 1: WELCOME! BENTO GRID (Matches FinPlanner Image 4)                  */}
+      {/* VIEW 1: WELCOME! BENTO GRID (Role-Scoped)                                 */}
       {/* ========================================================================= */}
       {activeSubTab === 'welcome' && (
         <div className="space-y-8">
           {/* Top Row of 2x2 Bento Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Top-Left Card: "My accounts" style summary breakdown */}
+            {/* Top-Left Card: Role-appropriate metrics */}
             <div className="fp-card flex flex-col justify-between">
               <h2 className="text-[18px] font-bold text-[#1a1d1a] mb-6">
-                Repository pipeline
+                {isPureStudent ? 'My thesis progress' : 'Repository pipeline'}
               </h2>
-              <div className="space-y-5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[14px] font-medium text-[#1a1d1a]">Proposals & Topics (Phase 1–2)</span>
-                  <span className="text-[20px] font-bold text-[#1a1d1a]">{p1Count + p2Count}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[14px] font-medium text-[#1a1d1a]">Chapters in Progress (Phase 3)</span>
-                  <span className="text-[20px] font-bold text-[#1a1d1a]">{p3Count}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[14px] font-medium text-[#1a1d1a]">Examination & Marking (Phase 4)</span>
-                  <span className="text-[20px] font-bold text-[#1a1d1a]">{p4Count}</span>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-[#eaece4]">
-                  <span className="text-[14px] font-medium text-[#1a1d1a]">Total Active Theses</span>
-                  <span className="text-[20px] font-bold text-[#1a1d1a]">{totalTheses}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Top-Right Card: "Upcoming transactions" style list */}
-            <div className="fp-card flex flex-col justify-between">
-              <h2 className="text-[18px] font-bold text-[#1a1d1a] mb-6">
-                Recent & upcoming submissions
-              </h2>
-              <div className="space-y-4">
-                {recentActivityRows.map((row, idx) => (
-                  <div key={idx} className="grid grid-cols-4 items-center gap-2 text-[13px]">
-                    <span className="text-[#1a1d1a]">{row.date}</span>
-                    <span className={`font-semibold ${row.isNegative ? 'text-[#c93b2b]' : 'text-[#3b7a57]'}`}>
-                      {row.metric}
-                    </span>
-                    <span className="text-[#1a1d1a] truncate">{row.author}</span>
-                    <div className="flex justify-end">
-                      <span
-                        className={`inline-flex items-center justify-center px-3 py-0.5 rounded-md text-[11px] font-semibold capitalize ${
-                          row.darkTag
-                            ? 'bg-[#5a6552] text-white'
-                            : 'bg-[#dce7d0] text-[#1a1d1a]'
-                        }`}
-                      >
-                        {row.tag}
-                      </span>
-                    </div>
+              {isPureStudent ? (
+                <div className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[14px] font-medium text-[#1a1d1a]">Active Submission</span>
+                    <span className="text-[20px] font-bold text-[#1a1d1a]">{studentActiveCount} / 1</span>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Bottom Row of 2x2 Bento Grid (60% Chart / 40% Quick Access) */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Bottom-Left Card: "Inflow & Income" vertical stacked bar chart */}
-            <div className="fp-card lg:col-span-7 flex flex-col justify-between">
-              <div className="flex flex-wrap items-center gap-6 mb-6">
-                <h2 className="text-[18px] font-bold text-[#1a1d1a]">
-                  Submissions & Approvals
-                </h2>
-                <div className="flex items-center gap-4 text-[12px] text-[#6e766b]">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-full bg-[#5a6552] inline-block" />
-                    Submissions
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-full bg-[#a6be95] inline-block" />
-                    Approvals
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[14px] font-medium text-[#1a1d1a]">Completed & Published</span>
+                    <span className="text-[20px] font-bold text-[#3b7a57]">{studentCompletedCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[14px] font-medium text-[#1a1d1a]">Total Views</span>
+                    <span className="text-[20px] font-bold text-[#1a1d1a]">{studentTotalViews}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-[#eaece4]">
+                    <span className="text-[14px] font-medium text-[#1a1d1a]">Total Downloads</span>
+                    <span className="text-[20px] font-bold text-[#1a1d1a]">{studentTotalDownloads}</span>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[14px] font-medium text-[#1a1d1a]">Proposals & Topics (Phase 1–2)</span>
+                    <span className="text-[20px] font-bold text-[#1a1d1a]">{p1Count + p2Count}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[14px] font-medium text-[#1a1d1a]">Chapters in Progress (Phase 3)</span>
+                    <span className="text-[20px] font-bold text-[#1a1d1a]">{p3Count}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[14px] font-medium text-[#1a1d1a]">Examination & Marking (Phase 4)</span>
+                    <span className="text-[20px] font-bold text-[#1a1d1a]">{p4Count}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-[#eaece4]">
+                    <span className="text-[14px] font-medium text-[#1a1d1a]">Total Active Theses</span>
+                    <span className="text-[20px] font-bold text-[#1a1d1a]">{totalTheses}</span>
+                  </div>
+                </div>
+              )}
+            </div>
 
-              {/* Stacked Vertical Pill Bars */}
-              <div className="pt-4 pb-2">
-                <div className="h-44 flex items-end justify-between gap-2 sm:gap-3 px-2 border-b border-[#eaece4]">
-                  {monthlyBarData.map((bar) => (
-                    <div key={bar.label} className="flex-1 flex flex-col items-center h-full justify-end">
-                      <div className="w-3 sm:w-3.5 flex flex-col justify-end h-full">
-                        {/* Top segment (light sage #a6be95) */}
-                        <div
-                          className="w-full bg-[#a6be95] rounded-t-full"
-                          style={{ height: `${bar.topPct}%` }}
-                        />
-                        {/* Bottom segment (dark olive #5a6552) */}
-                        <div
-                          className="w-full bg-[#5a6552] -mt-1 rounded-t-sm"
-                          style={{ height: `${bar.bottomPct}%` }}
-                        />
+            {/* Top-Right Card: Real Recent Activity (No fake placeholder names) */}
+            <div className="fp-card flex flex-col justify-between">
+              <h2 className="text-[18px] font-bold text-[#1a1d1a] mb-6">
+                {isPureStudent ? 'My recent submissions' : 'Recent & upcoming submissions'}
+              </h2>
+              {recentActivityRows.length === 0 ? (
+                <div className="py-8 text-center space-y-3">
+                  <p className="text-[13.5px] text-[#6e766b]">
+                    {isPureStudent
+                      ? 'You have not submitted a thesis proposal yet.'
+                      : 'No recent submissions or overdue reviews in your scope.'}
+                  </p>
+                  {isPureStudent && (
+                    <Button size="sm" onClick={() => navigate(tenantPath('/submit-proposal'))}>
+                      + Start Thesis Submission
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {recentActivityRows.map((row, idx) => (
+                    <div key={idx} className="grid grid-cols-4 items-center gap-2 text-[13px]">
+                      <span className="text-[#1a1d1a]">{row.date}</span>
+                      <span className={`font-semibold ${row.isNegative ? 'text-[#c93b2b]' : 'text-[#3b7a57]'}`}>
+                        {row.metric}
+                      </span>
+                      <span className="text-[#1a1d1a] truncate">{row.author}</span>
+                      <div className="flex justify-end">
+                        <span
+                          className={`inline-flex items-center justify-center px-3 py-0.5 rounded-md text-[11px] font-semibold capitalize ${
+                            row.darkTag
+                              ? 'bg-[#5a6552] text-white'
+                              : 'bg-[#dce7d0] text-[#1a1d1a]'
+                          }`}
+                        >
+                          {row.tag}
+                        </span>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center justify-between gap-2 sm:gap-3 px-2 pt-2.5">
-                  {monthlyBarData.map((bar) => (
-                    <span key={bar.label} className="flex-1 text-center text-[10px] text-[#6e766b]">
-                      {bar.label}
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Row: Institutional Chart (Staff/Leadership only) + Role-Scoped Quick Access */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {!isPureStudent && (
+              <div className="fp-card lg:col-span-7 flex flex-col justify-between">
+                <div className="flex flex-wrap items-center gap-6 mb-6">
+                  <h2 className="text-[18px] font-bold text-[#1a1d1a]">
+                    Submissions & Approvals
+                  </h2>
+                  <div className="flex items-center gap-4 text-[12px] text-[#6e766b]">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-full bg-[#5a6552] inline-block" />
+                      Submissions
                     </span>
-                  ))}
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-full bg-[#a6be95] inline-block" />
+                      Approvals
+                    </span>
+                  </div>
+                </div>
+
+                {/* Stacked Vertical Pill Bars */}
+                <div className="pt-4 pb-2">
+                  <div className="h-44 flex items-end justify-between gap-2 sm:gap-3 px-2 border-b border-[#eaece4]">
+                    {monthlyBarData.map((bar) => (
+                      <div key={bar.label} className="flex-1 flex flex-col items-center h-full justify-end">
+                        <div className="w-3 sm:w-3.5 flex flex-col justify-end h-full">
+                          <div
+                            className="w-full bg-[#a6be95] rounded-t-full"
+                            style={{ height: `${bar.topPct}%` }}
+                          />
+                          <div
+                            className="w-full bg-[#5a6552] -mt-1 rounded-t-sm"
+                            style={{ height: `${bar.bottomPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 sm:gap-3 px-2 pt-2.5">
+                    {monthlyBarData.map((bar) => (
+                      <span key={bar.label} className="flex-1 text-center text-[10px] text-[#6e766b]">
+                        {bar.label}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Bottom-Right Card: "Quick access" (Matches Image 4) */}
-            <div className="fp-card lg:col-span-5 flex flex-col justify-between">
+            {/* Quick access (Role-scoped, full width for students) */}
+            <div className={`fp-card ${isPureStudent ? 'lg:col-span-12' : 'lg:col-span-5'} flex flex-col justify-between`}>
               <h2 className="text-[18px] font-bold text-[#1a1d1a] mb-5">
                 Quick access
               </h2>
-              <div className="space-y-3.5">
-                {[
-                  {
-                    icon: User,
-                    label: 'My Profile & Account',
-                    onClick: () => navigate('/?tab=profile'),
-                  },
-                  {
-                    icon: FolderOpen,
-                    label: 'Submit Proposal / Thesis',
-                    onClick: () => navigate('/submit-proposal'),
-                  },
-                  {
-                    icon: TrendingUp,
-                    label: 'Review & Approval Queue',
-                    onClick: () => navigate('/?tab=approval'),
-                  },
-                  {
-                    icon: BookOpen,
-                    label: 'Public Thesis Catalog',
-                    onClick: () => navigate('/?tab=catalog'),
-                  },
-                ].map((item) => {
+              <div className={isPureStudent ? 'grid grid-cols-1 sm:grid-cols-2 gap-4' : 'space-y-3.5'}>
+                {quickAccessItems.map((item) => {
                   const Icon = item.icon
                   return (
                     <button
@@ -965,7 +1061,7 @@ export function Dashboard({ userRole }: DashboardProps) {
       {/* ========================================================================= */}
       {/* VIEW 2: REPORTING & ANALYTICS (Matches FinPlanner Image 7)                */}
       {/* ========================================================================= */}
-      {activeSubTab === 'reporting' && (
+      {activeSubTab === 'reporting' && canViewReporting && (
         <div className="space-y-6">
           {/* Top 3 KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1083,7 +1179,7 @@ export function Dashboard({ userRole }: DashboardProps) {
                       </p>
                       <button
                         type="button"
-                        onClick={() => navigate('/?tab=approval')}
+                        onClick={() => navigate(tenantPath('/?tab=approval'))}
                         className="text-[14px] font-bold text-white flex items-center gap-1.5 hover:underline cursor-pointer text-left"
                       >
                         <span>{act.phase_label || 'Thesis Milestone Updated'}</span>
@@ -1146,7 +1242,7 @@ export function Dashboard({ userRole }: DashboardProps) {
       {/* ========================================================================= */}
       {/* VIEW 3: PHASE PIPELINE TABLE (Matches FinPlanner Images 1 & 3)            */}
       {/* ========================================================================= */}
-      {activeSubTab === 'operations' && (
+      {activeSubTab === 'operations' && showPipeline && (
         <div className="space-y-6">
           {/* Action bar */}
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1213,7 +1309,7 @@ export function Dashboard({ userRole }: DashboardProps) {
                       <Badge variant="default">{st.status.replace(/_/g, ' ')}</Badge>
                     </td>
                     <td className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => navigate('/?tab=approval')}>
+                      <Button size="sm" variant="outline" onClick={() => navigate(tenantPath('/?tab=approval'))}>
                         Inspect
                       </Button>
                     </td>
@@ -1299,7 +1395,7 @@ export function Dashboard({ userRole }: DashboardProps) {
       {/* ========================================================================= */}
       {/* VIEW 5: TURNITIN PLAGIARISM RADAR (Matches FinPlanner Image 3 Table)      */}
       {/* ========================================================================= */}
-      {activeSubTab === 'plagiarism' && (
+      {activeSubTab === 'plagiarism' && canViewPlagiarism && (
         <div className="space-y-6">
           <p className="text-[14px] text-[#6e766b]">
             Institutional similarity analysis engine. Submissions must score below 20% similarity before advancing to Phase 4 examination.
@@ -1418,7 +1514,7 @@ export function Dashboard({ userRole }: DashboardProps) {
       {/* ========================================================================= */}
       {/* VIEW 7: 5-DAY OVERDUE REVIEWS                                             */}
       {/* ========================================================================= */}
-      {activeSubTab === 'overdue' && (
+      {activeSubTab === 'overdue' && canViewSla && (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[14px] text-[#6e766b]">
@@ -1457,7 +1553,7 @@ export function Dashboard({ userRole }: DashboardProps) {
                       </Badge>
                     </td>
                     <td className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => navigate('/?tab=approval')}>
+                      <Button size="sm" variant="outline" onClick={() => navigate(tenantPath('/?tab=approval'))}>
                         Inspect
                       </Button>
                     </td>
